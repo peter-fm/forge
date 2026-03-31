@@ -10,6 +10,7 @@ pub struct ForgeConfig {
     pub project: ProjectConfig,
     pub commands: CommandConfig,
     pub instructions: InstructionsConfig,
+    pub workspace: WorkspaceConfig,
     pub defaults: Defaults,
     pub repos: BTreeMap<String, RepoConfig>,
     pub routing: Vec<RoutingRule>,
@@ -34,6 +35,13 @@ pub struct InstructionsConfig {
     pub directory: Option<String>,
     pub gitignore: Option<bool>,
     pub agents_md: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct WorkspaceConfig {
+    pub instructions: Option<String>,
+    pub archive: Option<String>,
+    pub auto_archive: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -66,6 +74,8 @@ struct RawForgeConfig {
     commands: CommandConfig,
     #[serde(default)]
     instructions: InstructionsConfig,
+    #[serde(default)]
+    workspace: WorkspaceConfig,
     #[serde(default)]
     agent: AgentConfig,
     #[serde(default)]
@@ -120,6 +130,7 @@ pub fn load_forge_config_str(input: &str) -> Result<ForgeConfig, ForgeError> {
         project: raw.project,
         commands: raw.commands,
         instructions: raw.instructions,
+        workspace: raw.workspace,
         defaults: Defaults {
             agent: raw.agent.default.or(raw.defaults.agent),
             model: raw.agent.model.or(raw.defaults.model),
@@ -127,6 +138,24 @@ pub fn load_forge_config_str(input: &str) -> Result<ForgeConfig, ForgeError> {
         repos,
         routing: raw.routing,
     })
+}
+
+impl ForgeConfig {
+    pub fn workspace_instructions_dir(&self) -> &str {
+        self.workspace
+            .instructions
+            .as_deref()
+            .or(self.instructions.directory.as_deref())
+            .unwrap_or("instructions")
+    }
+
+    pub fn workspace_archive_dir(&self) -> &str {
+        self.workspace.archive.as_deref().unwrap_or("archive")
+    }
+
+    pub fn workspace_auto_archive(&self) -> bool {
+        self.workspace.auto_archive.unwrap_or(true)
+    }
 }
 
 pub fn load_forge_config_if_exists(path: impl AsRef<Path>) -> Result<ForgeConfig, ForgeError> {
@@ -150,6 +179,7 @@ pub fn build_run_variables(
             blueprint,
             repo,
             task,
+            instruction: _,
             issue,
             round,
             pr,
@@ -197,6 +227,11 @@ pub fn build_run_variables(
             values.insert(
                 "forge_path".to_string(),
                 forge_root.to_string_lossy().into_owned(),
+            );
+            values.insert("instruction_file".to_string(), "current.md".to_string());
+            values.insert(
+                "instruction_path".to_string(),
+                format!(".forge/{}/current.md", config.workspace_instructions_dir()),
             );
 
             insert_if_some(&mut values, "task", task.clone());

@@ -1,6 +1,7 @@
 use crate::cli::{Cli, Commands};
 use crate::error::ForgeError;
 
+pub mod clean;
 pub mod generate;
 pub mod init;
 pub mod list;
@@ -38,8 +39,12 @@ pub fn dispatch(cli: Cli) -> Result<(), ForgeError> {
             println!("regenerated .forge/");
             Ok(())
         }
+        Commands::Clean {
+            archive,
+            dry_run,
+        } => clean::clean_command(&root, archive, dry_run),
         Commands::Run { .. } => run::run_command(&root, &cli.command),
-        Commands::Status => status::print_status(&root),
+        Commands::Status { run_id, all } => status::print_status(&root, run_id.as_deref(), all),
         Commands::List => list::list_blueprints(&root),
     }
 }

@@ -12,3 +12,4 @@ pub mod parser;
 pub mod run_status;
 pub mod runner;
 pub mod vars;
+pub mod workspace;

@@ -23,6 +23,11 @@ fn loads_dot_forge_config_sections() {
         directory = "instructions"
         gitignore = true
         agents_md = "AGENTS.md"
+
+        [workspace]
+        instructions = "instructions"
+        archive = "archive"
+        auto_archive = true
         "#,
     )
     .expect("config should parse");
@@ -43,6 +48,9 @@ fn loads_dot_forge_config_sections() {
     );
     assert_eq!(config.instructions.gitignore, Some(true));
     assert_eq!(config.instructions.agents_md.as_deref(), Some("AGENTS.md"));
+    assert_eq!(config.workspace.instructions.as_deref(), Some("instructions"));
+    assert_eq!(config.workspace.archive.as_deref(), Some("archive"));
+    assert_eq!(config.workspace.auto_archive, Some(true));
 }
 
 #[test]
@@ -69,6 +77,7 @@ fn build_run_variables_exposes_command_settings() {
         blueprint: None,
         repo: None,
         task: Some("Add status output".to_string()),
+        instruction: None,
         issue: None,
         round: None,
         pr: None,
@@ -111,5 +120,13 @@ fn build_run_variables_exposes_command_settings() {
     assert_eq!(
         variables.get("branch").map(String::as_str),
         Some("feat/add-status-output")
+    );
+    assert_eq!(
+        variables.get("instruction_file").map(String::as_str),
+        Some("current.md")
+    );
+    assert_eq!(
+        variables.get("instruction_path").map(String::as_str),
+        Some(".forge/instructions/current.md")
     );
 }

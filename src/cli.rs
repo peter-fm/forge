@@ -25,6 +25,8 @@ pub enum Commands {
         #[arg(long)]
         task: Option<String>,
         #[arg(long)]
+        instruction: Option<String>,
+        #[arg(long)]
         issue: Option<String>,
         #[arg(long)]
         round: Option<String>,
@@ -51,7 +53,17 @@ pub enum Commands {
         #[arg(long)]
         force: bool,
     },
-    Status,
+    Clean {
+        #[arg(long)]
+        archive: bool,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    Status {
+        run_id: Option<String>,
+        #[arg(long = "all")]
+        all: bool,
+    },
     List,
 }
 
