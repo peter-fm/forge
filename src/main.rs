@@ -1,15 +1,15 @@
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 
-use warrant_forge::cli::{Cli, Commands};
-use warrant_forge::config::{build_run_variables, load_forge_config, resolve_blueprint_for_run};
-use warrant_forge::dispatch::ProcessRuntime;
-use warrant_forge::error::ForgeError;
-use warrant_forge::logger::{JsonlRunLogger, RunEnd, RunLogger, RunMeta};
-use warrant_forge::model::{Blueprint, RunContext, StepStatus};
-use warrant_forge::notify::{build_partial_summary, format_run_summary, resolve_backends};
-use warrant_forge::parser::parse_blueprint_file;
-use warrant_forge::runner::{BlueprintLoader, Engine};
+use forge::cli::{Cli, Commands};
+use forge::config::{build_run_variables, load_forge_config, resolve_blueprint_for_run};
+use forge::dispatch::ProcessRuntime;
+use forge::error::ForgeError;
+use forge::logger::{JsonlRunLogger, RunEnd, RunLogger, RunMeta};
+use forge::model::{Blueprint, RunContext, StepStatus};
+use forge::notify::{build_partial_summary, format_run_summary, resolve_backends};
+use forge::parser::parse_blueprint_file;
+use forge::runner::{BlueprintLoader, Engine};
 
 struct FileBlueprintLoader;
 
@@ -135,7 +135,7 @@ fn run() -> Result<(), ForgeError> {
 fn build_failure_summary(
     blueprint: &Blueprint,
     context: &RunContext,
-) -> warrant_forge::model::RunSummary {
+) -> forge::model::RunSummary {
     let step_names = blueprint
         .steps
         .iter()

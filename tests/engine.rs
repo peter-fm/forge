@@ -6,18 +6,18 @@ use std::rc::Rc;
 
 use clap::Parser;
 use tempfile::tempdir;
-use warrant_forge::cli::{Cli, Commands};
-use warrant_forge::condition::evaluate_condition;
-use warrant_forge::config::{
+use forge::cli::{Cli, Commands};
+use forge::condition::evaluate_condition;
+use forge::config::{
     auto_branch_name, build_run_variables, load_forge_config_str, resolve_blueprint_for_run,
 };
-use warrant_forge::error::ForgeError;
-use warrant_forge::logger::RunLogger;
-use warrant_forge::model::{Blueprint, RunContext, Step, StepResult, StepStatus, StepType};
-use warrant_forge::notify::{format_run_summary, openclaw_command_args, resolve_backends};
-use warrant_forge::parser::{parse_blueprint_file, parse_blueprint_str};
-use warrant_forge::runner::{BlueprintLoader, Engine, ExecutionOutput, Runtime};
-use warrant_forge::vars::{build_variable_scope, substitute_text};
+use forge::error::ForgeError;
+use forge::logger::RunLogger;
+use forge::model::{Blueprint, RunContext, Step, StepResult, StepStatus, StepType};
+use forge::notify::{format_run_summary, openclaw_command_args, resolve_backends};
+use forge::parser::{parse_blueprint_file, parse_blueprint_str};
+use forge::runner::{BlueprintLoader, Engine, ExecutionOutput, Runtime};
+use forge::vars::{build_variable_scope, substitute_text};
 
 #[test]
 fn parses_common_lint_blueprint() {
@@ -689,7 +689,7 @@ fn resolve_backends_multiple() {
 
 #[test]
 fn summary_format_success() {
-    let summary = warrant_forge::model::RunSummary {
+    let summary = forge::model::RunSummary {
         steps: vec![
             step_result("lint", StepStatus::Succeeded),
             step_result("test", StepStatus::Succeeded),
@@ -704,7 +704,7 @@ fn summary_format_success() {
 
 #[test]
 fn summary_format_failure() {
-    let summary = warrant_forge::model::RunSummary {
+    let summary = forge::model::RunSummary {
         steps: vec![
             step_result("lint", StepStatus::Succeeded),
             step_result("test", StepStatus::Failed),
@@ -763,7 +763,7 @@ fn step_result(name: &str, status: StepStatus) -> StepResult {
 
 fn blueprint_with_steps(steps: Vec<Step>) -> Blueprint {
     Blueprint {
-        blueprint: warrant_forge::model::BlueprintMeta {
+        blueprint: forge::model::BlueprintMeta {
             name: "test".to_string(),
             description: "test blueprint".to_string(),
             repos: Vec::new(),
@@ -971,7 +971,7 @@ struct MemoryLogger {
 impl RunLogger for MemoryLogger {
     fn log_run_start(
         &mut self,
-        _meta: &warrant_forge::logger::RunMeta,
+        _meta: &forge::logger::RunMeta,
     ) -> Result<(), ForgeError> {
         Ok(())
     }
@@ -983,7 +983,7 @@ impl RunLogger for MemoryLogger {
 
     fn log_run_end(
         &mut self,
-        _result: &warrant_forge::logger::RunEnd,
+        _result: &forge::logger::RunEnd,
     ) -> Result<(), ForgeError> {
         Ok(())
     }
