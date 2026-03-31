@@ -608,6 +608,15 @@ fn dry_run_generated_pipeline() {
         ("target_repo_path".to_string(), "/tmp/shell".to_string()),
         ("target_agent".to_string(), "codex".to_string()),
         ("target_model".to_string(), "gpt-5.4".to_string()),
+        ("run_id".to_string(), "new-feature-a3f2".to_string()),
+        (
+            "instruction_file".to_string(),
+            "add-a-hello-subcommand.2026-03-31T1325.codex.md".to_string(),
+        ),
+        (
+            "instruction_path".to_string(),
+            ".forge/instructions/add-a-hello-subcommand.2026-03-31T1325.codex.md".to_string(),
+        ),
     ]);
     let mut engine = Engine {
         loader: FilesystemLoader,
@@ -638,6 +647,7 @@ fn repo_aliases_include_short_path_names() {
         blueprint: None,
         repo: Some("warrant-core".to_string()),
         task: None,
+        instruction: None,
         issue: None,
         round: None,
         pr: None,
@@ -1116,6 +1126,7 @@ fn build_run_variables_applies_resolution_order() {
         blueprint: None,
         repo: Some("warrant-core".to_string()),
         task: Some("Add Verbose Flag".to_string()),
+        instruction: None,
         issue: Some("42".to_string()),
         round: Some("5".to_string()),
         pr: None,

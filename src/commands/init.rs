@@ -1,5 +1,6 @@
 use crate::detect::{DetectedProject, ProjectType, detect_project};
 use crate::error::ForgeError;
+use crate::workspace::{ensure_workspace_layout, stale_root_instruction_files};
 use std::fs;
 use std::path::Path;
 
@@ -16,6 +17,7 @@ pub fn init_project(root: &Path, options: &InitOptions) -> Result<DetectedProjec
     write_generated_files(root, &detected, options.force)?;
     ensure_instructions_gitignore(root)?;
     ensure_agents_md(root)?;
+    handle_stale_instruction_files(root)?;
     Ok(detected)
 }
 
@@ -25,7 +27,6 @@ pub fn write_generated_files(
     force: bool,
 ) -> Result<(), ForgeError> {
     fs::create_dir_all(root.join(".forge/blueprints"))?;
-    fs::create_dir_all(root.join(".forge/instructions"))?;
 
     write_generated_file(
         &root.join(".forge/config.toml"),
@@ -48,10 +49,8 @@ pub fn write_generated_files(
         force,
     )?;
 
-    let gitkeep = root.join(".forge/instructions/.gitkeep");
-    if !gitkeep.exists() {
-        fs::write(gitkeep, "")?;
-    }
+    let config = crate::config::load_forge_config_str(&render_config(detected))?;
+    ensure_workspace_layout(root, &config)?;
 
     Ok(())
 }
@@ -80,6 +79,10 @@ pub fn render_config(detected: &DetectedProject) -> String {
     if detected.agents_md_present {
         output.push_str("agents_md = \"AGENTS.md\"\n");
     }
+    output.push_str("\n[workspace]\n");
+    output.push_str("instructions = \"instructions\"\n");
+    output.push_str("archive = \"archive\"\n");
+    output.push_str("auto_archive = true\n");
     output
 }
 
@@ -93,7 +96,7 @@ pub fn render_new_feature_blueprint(detected: &DetectedProject) -> String {
     output.push_str("name = \"implement\"\n");
     output.push_str("agent = \"{target_agent}\"\n");
     output.push_str("model = \"{target_model}\"\n");
-    output.push_str("prompt = \"\"\"Read the task instructions in .forge/instructions/. Implement the feature described there. Make sure to add tests for new functionality. Commit your changes.\"\"\"\n");
+    output.push_str("prompt = \"\"\"Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Implement the feature described there. Make sure to add tests for new functionality. Commit your changes.\"\"\"\n");
     output.push_str("max_retries = 2\n\n");
     if let Some(command) = &detected.commands.lint {
         output.push_str("[[step]]\n");
@@ -120,7 +123,7 @@ pub fn render_fix_bug_blueprint(detected: &DetectedProject) -> String {
     output.push_str("name = \"fix\"\n");
     output.push_str("agent = \"{target_agent}\"\n");
     output.push_str("model = \"{target_model}\"\n");
-    output.push_str("prompt = \"\"\"Read the task instructions in .forge/instructions/. Fix the bug described there. Add a regression test that would have caught this bug. Commit your changes.\"\"\"\n");
+    output.push_str("prompt = \"\"\"Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Fix the bug described there. Add a regression test that would have caught this bug. Commit your changes.\"\"\"\n");
     output.push_str("max_retries = 3\n\n");
     if let Some(command) = &detected.commands.test {
         output.push_str("[[step]]\n");
@@ -141,7 +144,7 @@ pub fn render_refactor_blueprint(detected: &DetectedProject) -> String {
     output.push_str("name = \"refactor\"\n");
     output.push_str("agent = \"{target_agent}\"\n");
     output.push_str("model = \"{target_model}\"\n");
-    output.push_str("prompt = \"\"\"Read the task instructions in .forge/instructions/. Refactor the code described there without changing intended behavior. Commit your changes once verification passes.\"\"\"\n");
+    output.push_str("prompt = \"\"\"Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Refactor the code described there without changing intended behavior. Commit your changes once verification passes.\"\"\"\n");
     output.push('\n');
     if let Some(command) = &detected.commands.lint {
         output.push_str("[[step]]\n");
@@ -178,6 +181,12 @@ pub fn ensure_instructions_gitignore(root: &Path) -> Result<(), ForgeError> {
     if !updated.contains("!.forge/instructions/.gitkeep") {
         updated.push_str("!.forge/instructions/.gitkeep\n");
     }
+    if !updated.contains(".forge/archive/") {
+        updated.push_str(".forge/archive/\n");
+    }
+    if !updated.contains(".forge/runs/") {
+        updated.push_str(".forge/runs/\n");
+    }
 
     if updated != existing {
         fs::write(path, updated)?;
@@ -213,4 +222,17 @@ fn write_generated_file(path: &Path, content: &str, force: bool) -> Result<(), F
 
 fn escape_toml(input: &str) -> String {
     input.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+fn handle_stale_instruction_files(root: &Path) -> Result<(), ForgeError> {
+    let stale = stale_root_instruction_files(root)?;
+    if stale.is_empty() {
+        return Ok(());
+    }
+
+    println!(
+        "Found {} instruction-like files in repo root. Consider moving them to .forge/instructions/ or .forge/archive/.",
+        stale.len()
+    );
+    Ok(())
 }

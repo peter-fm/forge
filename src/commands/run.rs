@@ -9,7 +9,9 @@ use crate::model::{Blueprint, RunContext, StepStatus};
 use crate::notify::{build_partial_summary, format_run_summary, resolve_backends};
 use crate::parser::parse_blueprint_file;
 use crate::runner::{BlueprintLoader, Engine};
-use std::fs;
+use crate::workspace::{
+    InstructionFile, archive_instruction_file, create_instruction_file, resolve_instruction_file,
+};
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 
@@ -27,6 +29,7 @@ pub fn run_command(root: &Path, command: &Commands) -> Result<(), ForgeError> {
         blueprint,
         repo,
         task,
+        instruction,
         dry_run,
         notify,
         verbose,
@@ -41,16 +44,23 @@ pub fn run_command(root: &Path, command: &Commands) -> Result<(), ForgeError> {
     let blueprint_root = root.join(".forge/blueprints");
     let blueprint_path =
         resolve_run_blueprint_path(&blueprint_root, blueprint_name, blueprint, repo)?;
-    if let Some(task) = task {
-        write_current_instructions(root, &config, task)?;
-    }
     let blueprint = parse_blueprint_file(&blueprint_path)?;
+    let instruction = resolve_run_instruction(root, &config, task.as_deref(), instruction.as_deref(), command)?;
 
     let mut context = RunContext::new();
     context.variables = build_run_variables(&config, command, root, &date)?;
     context.dry_run = *dry_run;
     context.verbose = *verbose;
-    context.status_path = Some(root.join(".forge/.run-status.json"));
+    context.instruction_file = instruction.as_ref().map(|file| file.file_name.clone());
+    if let Some(instruction) = &instruction {
+        context
+            .variables
+            .insert("instruction_file".to_string(), instruction.file_name.clone());
+        context.variables.insert(
+            "instruction_path".to_string(),
+            instruction.path_display.clone(),
+        );
+    }
 
     let runs_dir = root.join(".forge/runs");
     let mut logger = JsonlRunLogger::new(&runs_dir)?;
@@ -114,6 +124,15 @@ pub fn run_command(root: &Path, command: &Commands) -> Result<(), ForgeError> {
 
     let notification = format_run_summary(&blueprint.blueprint.name, &summary);
 
+    match &run_result {
+        Ok(_) if config.workspace_auto_archive() => {
+            if let Some(instruction) = &instruction {
+                archive_instruction_file(root, &config, instruction, "done")?;
+            }
+        }
+        _ => {}
+    }
+
     if !notify.is_empty() {
         let backends = resolve_backends(notify)?;
         for backend in backends {
@@ -170,23 +189,6 @@ fn resolve_run_blueprint_path(
         .ok_or_else(|| ForgeError::message("missing blueprint name"))?;
     resolve_blueprint_for_run(blueprint_root, blueprint_name, repo.as_deref())
 }
-
-fn write_current_instructions(
-    root: &Path,
-    config: &crate::config::ForgeConfig,
-    task: &str,
-) -> Result<(), ForgeError> {
-    let directory = config
-        .instructions
-        .directory
-        .as_deref()
-        .unwrap_or("instructions");
-    let instructions_dir = root.join(".forge").join(directory);
-    fs::create_dir_all(&instructions_dir)?;
-    fs::write(instructions_dir.join("current.md"), task)?;
-    Ok(())
-}
-
 fn build_failure_summary(blueprint: &Blueprint, context: &RunContext) -> crate::model::RunSummary {
     let step_names = blueprint
         .steps
@@ -204,4 +206,33 @@ fn today_string() -> Result<String, ForgeError> {
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn resolve_target_agent<'a>(config: &'a crate::config::ForgeConfig, command: &'a Commands) -> &'a str {
+    match command {
+        Commands::Run { agent: Some(agent), .. } => agent,
+        _ => config.defaults.agent.as_deref().unwrap_or("codex"),
+    }
+}
+
+fn resolve_run_instruction(
+    root: &Path,
+    config: &crate::config::ForgeConfig,
+    task: Option<&str>,
+    instruction: Option<&str>,
+    command: &Commands,
+) -> Result<Option<InstructionFile>, ForgeError> {
+    match (task, instruction) {
+        (Some(_), Some(_)) => Err(ForgeError::message(
+            "use either --task or --instruction, not both",
+        )),
+        (Some(task), None) => Ok(Some(create_instruction_file(
+            root,
+            config,
+            task,
+            resolve_target_agent(config, command),
+        )?)),
+        (None, Some(instruction)) => Ok(Some(resolve_instruction_file(root, config, instruction)?)),
+        (None, None) => Ok(None),
+    }
 }
