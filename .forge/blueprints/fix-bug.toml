@@ -1,0 +1,34 @@
+[blueprint]
+name = "fix-bug"
+description = "Fix a bug in forge with regression test"
+
+[[step]]
+type = "agentic"
+name = "fix"
+agent = "codex"
+model = "gpt-5.4"
+prompt = """Read the task instructions in .forge/instructions/.
+Read the relevant source files in src/ and tests/.
+
+Fix the bug described in the instructions.
+- Write a regression test that fails BEFORE your fix and passes AFTER
+- Don't change unrelated code
+- Explain what caused the bug in your commit message
+
+Commit your changes with a conventional commit message (fix: ...)."""
+max_retries = 3
+
+[[step]]
+type = "deterministic"
+name = "format"
+command = "cargo fmt -- --check"
+
+[[step]]
+type = "deterministic"
+name = "lint"
+command = "cargo clippy -- -D warnings"
+
+[[step]]
+type = "gate"
+name = "test"
+command = "cargo test"

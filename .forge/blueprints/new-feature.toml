@@ -1,0 +1,36 @@
+[blueprint]
+name = "new-feature"
+description = "Implement a new feature in forge with full verification"
+
+[[step]]
+type = "agentic"
+name = "implement"
+agent = "codex"
+model = "gpt-5.4"
+prompt = """Read the task instructions in .forge/instructions/.
+Read CODEX_BRIEF.md and README.md for project context.
+Read the existing source files in src/ that are relevant to the task.
+
+Implement the feature described in the instructions.
+- Add tests for new functionality in tests/
+- Follow existing code patterns (see src/runner.rs for the engine style)
+- Use Rust 2024 edition idioms
+- Keep the engine core (runner.rs, model.rs, condition.rs, vars.rs) stable — prefer additive changes
+
+Commit your changes with a conventional commit message (feat: ...)."""
+max_retries = 3
+
+[[step]]
+type = "deterministic"
+name = "format"
+command = "cargo fmt -- --check"
+
+[[step]]
+type = "deterministic"
+name = "lint"
+command = "cargo clippy -- -D warnings"
+
+[[step]]
+type = "gate"
+name = "test"
+command = "cargo test"

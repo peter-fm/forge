@@ -1,0 +1,17 @@
+[project]
+type = "rust"
+name = "forge"
+
+[commands]
+test = "cargo test"
+lint = "cargo clippy -- -D warnings"
+build = "cargo build --release"
+fmt_check = "cargo fmt -- --check"
+
+[agent]
+default = "codex"
+model = "gpt-5.4"
+
+[instructions]
+directory = "instructions"
+gitignore = true

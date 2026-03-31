@@ -1,0 +1,43 @@
+[blueprint]
+name = "code-review"
+description = "Review recent changes for correctness, style, and test coverage"
+
+[[step]]
+type = "deterministic"
+name = "diff"
+command = "git diff origin/master..HEAD --stat && echo '---' && git diff origin/master..HEAD"
+sets = "diff_output"
+
+[[step]]
+type = "agentic"
+name = "review"
+agent = "claude-code"
+model = "claude-opus-4-20250514"
+prompt = """You are reviewing changes to the forge codebase — a Rust CLI tool that provides development guardrails for AI coding agents.
+
+Review the recent commits (git log and git diff from origin/master).
+
+Check for:
+1. **Correctness** — does the logic do what it claims? Edge cases?
+2. **Test coverage** — are new code paths tested? Missing tests?
+3. **Style** — consistent with existing patterns? Idiomatic Rust?
+4. **Safety** — any unwrap() that should be ? or expect()? Error handling gaps?
+5. **API design** — public interfaces clean? Breaking changes documented?
+6. **Performance** — unnecessary allocations? O(n²) where O(n) would do?
+
+Output a structured review:
+- List issues found (severity: critical/warning/nit)
+- Suggest specific fixes with code snippets
+- Note what's done well
+
+Do NOT make changes — review only."""
+
+[[step]]
+type = "deterministic"
+name = "lint"
+command = "cargo clippy -- -D warnings"
+
+[[step]]
+type = "gate"
+name = "test"
+command = "cargo test"

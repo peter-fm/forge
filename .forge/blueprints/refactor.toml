@@ -1,0 +1,40 @@
+[blueprint]
+name = "refactor"
+description = "Refactor forge code with safety gates"
+
+[[step]]
+type = "gate"
+name = "baseline-test"
+command = "cargo test"
+
+[[step]]
+type = "agentic"
+name = "refactor"
+agent = "codex"
+model = "gpt-5.4"
+prompt = """Read the task instructions in .forge/instructions/.
+Read the source files involved in the refactor.
+
+Refactor as described. Rules:
+- No behavioural changes — all existing tests must still pass
+- Improve clarity, reduce duplication, better naming
+- If you split a module, update lib.rs exports
+- Don't change the public API of any function without updating all callers
+
+Commit your changes with a conventional commit message (refactor: ...)."""
+max_retries = 2
+
+[[step]]
+type = "deterministic"
+name = "format"
+command = "cargo fmt -- --check"
+
+[[step]]
+type = "deterministic"
+name = "lint"
+command = "cargo clippy -- -D warnings"
+
+[[step]]
+type = "gate"
+name = "test"
+command = "cargo test"
