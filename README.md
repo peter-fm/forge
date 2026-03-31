@@ -269,13 +269,17 @@ Any agent that reads `AGENTS.md` will discover the workflow.
 
 ### As a Pi Skill
 
-Forge ships with a Pi-compatible skill definition:
+Forge ships with a Pi-compatible skill definition. Install it directly:
 
 ```bash
-pi install forge    # if published to Pi skill registry
+# From the repo
+cp skills/forge.md ~/.pi/agent/skills/
+
+# Or download from GitHub
+curl -o ~/.pi/agent/skills/forge.md https://raw.githubusercontent.com/peter-fm/forge/master/skills/forge.md
 ```
 
-Or manually copy `skills/forge.md` to your agent's skills directory. The skill teaches the agent:
+Pi auto-discovers skills in `~/.pi/agent/skills/`. Once installed, the skill teaches the agent:
 
 1. Check for `.forge/` in the current project
 2. If present, read `.forge/config.toml` for project context
