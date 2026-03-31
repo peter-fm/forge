@@ -1,9 +1,11 @@
 use crate::error::ForgeError;
 use crate::logger::RunLogger;
 use crate::model::{Blueprint, RunContext, RunSummary, Step, StepResult, StepStatus, StepType};
+use crate::run_status;
 use crate::{condition, vars};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionOutput {
@@ -52,6 +54,7 @@ where
         blueprint: &Blueprint,
         context: &mut RunContext,
     ) -> Result<RunSummary, ForgeError> {
+        let is_root = context.blueprint_stack.is_empty();
         let stack_key = blueprint_stack_key(blueprint);
         if context.blueprint_stack.contains(&stack_key) {
             return Err(ForgeError::message(format!(
@@ -59,9 +62,23 @@ where
             )));
         }
 
+        if is_root && context.run_started_at.is_none() {
+            context.run_started_at = Some(now_secs()?);
+        }
         context.blueprint_stack.push(stack_key);
+        if is_root {
+            self.write_status_snapshot(blueprint, context, None, "running")?;
+        }
         let result = self.run_blueprint_inner(blueprint, context);
         context.blueprint_stack.pop();
+        if is_root {
+            let state = if result.is_ok() {
+                "succeeded"
+            } else {
+                "failed"
+            };
+            self.write_status_snapshot(blueprint, context, None, state)?;
+        }
         result
     }
 
@@ -86,9 +103,16 @@ where
                     attempts: 0,
                 };
                 self.record_result(context, &mut summary_steps, result)?;
+                self.write_status_snapshot(blueprint, context, None, "running")?;
                 index += 1;
                 continue;
             }
+
+            context
+                .step_started_at
+                .entry(step.name.clone())
+                .or_insert(now_secs()?);
+            self.write_status_snapshot(blueprint, context, Some(&step.name), "running")?;
 
             if step.step_type == StepType::Agentic && step.max_retries.unwrap_or(0) > 0 {
                 let retry_target = self.determine_retry_target(blueprint, index, context);
@@ -99,8 +123,10 @@ where
                     if let Some(target_result) = retry_result {
                         self.record_result(context, &mut summary_steps, target_result)?;
                     }
+                    self.write_status_snapshot(blueprint, context, None, "running")?;
                     index += 2;
                 } else {
+                    self.write_status_snapshot(blueprint, context, None, "running")?;
                     index += 1;
                 }
                 continue;
@@ -120,6 +146,7 @@ where
                 for result in results {
                     self.record_result(context, &mut summary_steps, result)?;
                 }
+                self.write_status_snapshot(blueprint, context, None, "running")?;
                 if step.step_type == StepType::Gate && failed {
                     return Err(ForgeError::message(format!(
                         "gate step `{}` failed",
@@ -138,6 +165,7 @@ where
             let gate_failed =
                 step.step_type == StepType::Gate && result.status == StepStatus::Failed;
             self.record_result(context, &mut summary_steps, result.clone())?;
+            self.write_status_snapshot(blueprint, context, None, "running")?;
             if gate_failed {
                 return Err(ForgeError::message(format!(
                     "gate step `{}` failed",
@@ -422,6 +450,31 @@ where
         summary.push(result);
         Ok(())
     }
+
+    fn write_status_snapshot(
+        &self,
+        blueprint: &Blueprint,
+        context: &RunContext,
+        current_step: Option<&str>,
+        state: &str,
+    ) -> Result<(), ForgeError> {
+        let Some(path) = context.status_path.as_ref() else {
+            return Ok(());
+        };
+        let step_names = blueprint
+            .steps
+            .iter()
+            .map(|step| step.name.clone())
+            .collect::<Vec<_>>();
+        run_status::write_snapshot(
+            path,
+            &blueprint.blueprint.name,
+            &step_names,
+            context,
+            current_step,
+            state,
+        )
+    }
 }
 
 fn should_run(step: &Step, context: &RunContext) -> Result<bool, ForgeError> {
@@ -584,4 +637,11 @@ fn blueprint_meta(name: &str) -> crate::model::BlueprintMeta {
         description: "synthetic".to_string(),
         repos: Vec::new(),
     }
+}
+
+fn now_secs() -> Result<u64, ForgeError> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .map_err(|error| ForgeError::message(error.to_string()))
 }

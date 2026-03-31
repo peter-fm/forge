@@ -95,6 +95,9 @@ pub struct RunContext {
     pub variables: BTreeMap<String, String>,
     pub step_results: BTreeMap<String, StepResult>,
     pub blueprint_stack: Vec<String>,
+    pub status_path: Option<PathBuf>,
+    pub run_started_at: Option<u64>,
+    pub step_started_at: BTreeMap<String, u64>,
     pub dry_run: bool,
     pub verbose: bool,
 }

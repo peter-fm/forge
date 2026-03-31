@@ -1,7 +1,8 @@
+use crate::detect::ProjectType;
 use clap::Parser;
 
 #[derive(Debug, Parser)]
-#[command(name = "warrant-forge")]
+#[command(name = "forge")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -9,8 +10,16 @@ pub struct Cli {
 
 #[derive(Debug, clap::Subcommand)]
 pub enum Commands {
+    Init {
+        #[arg(long = "type")]
+        project_type: Option<ProjectType>,
+        #[arg(long)]
+        force: bool,
+    },
     Run {
-        blueprint: String,
+        blueprint_name: Option<String>,
+        #[arg(long)]
+        blueprint: Option<String>,
         #[arg(long)]
         repo: Option<String>,
         #[arg(long)]
@@ -36,6 +45,14 @@ pub enum Commands {
         #[arg(long = "var", value_parser = parse_var)]
         vars: Vec<(String, String)>,
     },
+    Generate {
+        #[arg(long = "type")]
+        project_type: Option<ProjectType>,
+        #[arg(long)]
+        force: bool,
+    },
+    Status,
+    List,
 }
 
 impl Cli {

@@ -7,9 +7,33 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ForgeConfig {
+    pub project: ProjectConfig,
+    pub commands: CommandConfig,
+    pub instructions: InstructionsConfig,
     pub defaults: Defaults,
     pub repos: BTreeMap<String, RepoConfig>,
     pub routing: Vec<RoutingRule>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct ProjectConfig {
+    #[serde(rename = "type")]
+    pub project_type: Option<String>,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct CommandConfig {
+    pub test: Option<String>,
+    pub lint: Option<String>,
+    pub build: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct InstructionsConfig {
+    pub directory: Option<String>,
+    pub gitignore: Option<bool>,
+    pub agents_md: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -37,11 +61,25 @@ pub struct RoutingRule {
 #[derive(Debug, Deserialize)]
 struct RawForgeConfig {
     #[serde(default)]
+    project: ProjectConfig,
+    #[serde(default)]
+    commands: CommandConfig,
+    #[serde(default)]
+    instructions: InstructionsConfig,
+    #[serde(default)]
+    agent: AgentConfig,
+    #[serde(default)]
     defaults: Defaults,
     #[serde(default)]
     repos: BTreeMap<String, RawRepoConfig>,
     #[serde(default)]
     routing: Vec<RoutingRule>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct AgentConfig {
+    default: Option<String>,
+    model: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -79,10 +117,25 @@ pub fn load_forge_config_str(input: &str) -> Result<ForgeConfig, ForgeError> {
         .collect::<Result<BTreeMap<_, _>, ForgeError>>()?;
 
     Ok(ForgeConfig {
-        defaults: raw.defaults,
+        project: raw.project,
+        commands: raw.commands,
+        instructions: raw.instructions,
+        defaults: Defaults {
+            agent: raw.agent.default.or(raw.defaults.agent),
+            model: raw.agent.model.or(raw.defaults.model),
+        },
         repos,
         routing: raw.routing,
     })
+}
+
+pub fn load_forge_config_if_exists(path: impl AsRef<Path>) -> Result<ForgeConfig, ForgeError> {
+    let path = path.as_ref();
+    if path.exists() {
+        load_forge_config(path)
+    } else {
+        Ok(ForgeConfig::default())
+    }
 }
 
 pub fn build_run_variables(
@@ -93,6 +146,7 @@ pub fn build_run_variables(
 ) -> Result<BTreeMap<String, String>, ForgeError> {
     match command {
         Commands::Run {
+            blueprint_name,
             blueprint,
             repo,
             task,
@@ -109,6 +163,15 @@ pub fn build_run_variables(
 
             insert_if_some(&mut values, "target_agent", config.defaults.agent.clone());
             insert_if_some(&mut values, "target_model", config.defaults.model.clone());
+            insert_if_some(
+                &mut values,
+                "project_type",
+                config.project.project_type.clone(),
+            );
+            insert_if_some(&mut values, "project_name", config.project.name.clone());
+            insert_if_some(&mut values, "test_command", config.commands.test.clone());
+            insert_if_some(&mut values, "lint_command", config.commands.lint.clone());
+            insert_if_some(&mut values, "build_command", config.commands.build.clone());
 
             for (repo_name, repo_config) in &config.repos {
                 insert_repo_path_aliases(&mut values, repo_name, &repo_config.path);
@@ -147,7 +210,7 @@ pub fn build_run_variables(
 
             let branch_value = branch.clone().unwrap_or_else(|| {
                 auto_branch_name(
-                    blueprint,
+                    resolve_blueprint_name(blueprint_name, blueprint),
                     task.as_deref(),
                     issue.as_deref(),
                     round.as_deref(),
@@ -166,6 +229,9 @@ pub fn build_run_variables(
 
             Ok(values)
         }
+        _ => Err(ForgeError::message(
+            "run variables can only be built for the `run` command",
+        )),
     }
 }
 
@@ -178,7 +244,9 @@ pub fn auto_branch_name(
 ) -> String {
     match blueprint {
         "code-review" => format!("refactor/code-review-{date}"),
-        "implement-feature" => format!("feat/{}", slugify(task.unwrap_or("work"), 40)),
+        "implement-feature" | "new-feature" => {
+            format!("feat/{}", slugify(task.unwrap_or("work"), 40))
+        }
         "fix-bug" => format!("fix/{}", issue.unwrap_or("unknown")),
         "red-team" => format!("red-team/round-{}", round.unwrap_or("1")),
         _ => format!("forge/{blueprint}-{date}"),
@@ -215,6 +283,16 @@ fn insert_if_some(values: &mut BTreeMap<String, String>, key: &str, value: Optio
     if let Some(value) = value {
         values.insert(key.to_string(), value);
     }
+}
+
+fn resolve_blueprint_name<'a>(
+    blueprint_name: &'a Option<String>,
+    blueprint: &'a Option<String>,
+) -> &'a str {
+    blueprint_name
+        .as_deref()
+        .or_else(|| blueprint.as_deref())
+        .unwrap_or("run")
 }
 
 fn insert_repo_path_aliases(values: &mut BTreeMap<String, String>, repo_name: &str, path: &str) {
