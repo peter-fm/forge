@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use clap::Parser;
-use tempfile::tempdir;
 use forge::cli::{Cli, Commands};
+use forge::commands::init::{InitOptions, init_project};
 use forge::condition::evaluate_condition;
 use forge::config::{
     auto_branch_name, build_run_variables, load_forge_config_str, resolve_blueprint_for_run,
@@ -18,26 +18,36 @@ use forge::notify::{format_run_summary, openclaw_command_args, resolve_backends}
 use forge::parser::{parse_blueprint_file, parse_blueprint_str};
 use forge::runner::{BlueprintLoader, Engine, ExecutionOutput, Runtime};
 use forge::vars::{build_variable_scope, substitute_text};
+use tempfile::{TempDir, tempdir};
 
 #[test]
-fn parses_common_lint_blueprint() {
-    let path = manifest_path("blueprints/common/lint.toml");
+fn parses_generated_refactor_blueprint() {
+    let dir = init_generated_project();
+    let path = dir.path().join(".forge/blueprints/refactor.toml");
     let blueprint = parse_blueprint_file(path).expect("lint blueprint should parse");
 
-    assert_eq!(blueprint.blueprint.name, "lint");
-    assert_eq!(blueprint.steps.len(), 2);
+    assert_eq!(blueprint.blueprint.name, "refactor");
     assert!(
         blueprint
             .steps
             .iter()
-            .all(|step| step.step_type == StepType::Deterministic)
+            .any(|step| step.step_type == StepType::Agentic)
+    );
+    assert!(
+        blueprint
+            .steps
+            .iter()
+            .filter(|step| step.step_type == StepType::Deterministic)
+            .count()
+            >= 2
     );
 }
 
 #[test]
-fn parses_implement_feature_with_all_step_shapes() {
-    let path = manifest_path("blueprints/warrant-shell/implement-feature.toml");
-    let blueprint = parse_blueprint_file(path).expect("implement-feature should parse");
+fn parses_generated_new_feature_blueprint() {
+    let dir = init_generated_project();
+    let path = dir.path().join(".forge/blueprints/new-feature.toml");
+    let blueprint = parse_blueprint_file(path).expect("new-feature should parse");
 
     assert!(
         blueprint
@@ -55,20 +65,7 @@ fn parses_implement_feature_with_all_step_shapes() {
         blueprint
             .steps
             .iter()
-            .any(|step| step.step_type == StepType::Blueprint)
-    );
-    assert!(
-        blueprint
-            .steps
-            .iter()
-            .any(|step| step.step_type == StepType::Gate)
-    );
-    assert!(blueprint.steps.iter().any(|step| step.condition.is_some()));
-    assert!(
-        blueprint
-            .steps
-            .iter()
-            .any(|step| step.max_retries == Some(3))
+            .any(|step| step.max_retries == Some(2))
     );
 }
 
@@ -590,9 +587,10 @@ fn aborts_after_exhausting_retries() {
 }
 
 #[test]
-fn dry_run_full_pipeline_with_conditions() {
-    let path = manifest_path("blueprints/warrant-shell/implement-feature.toml");
-    let blueprint = parse_blueprint_file(path).expect("implement-feature should parse");
+fn dry_run_generated_pipeline() {
+    let dir = init_generated_project();
+    let path = dir.path().join(".forge/blueprints/new-feature.toml");
+    let blueprint = parse_blueprint_file(path).expect("new-feature should parse");
     let mut context = RunContext::new();
     context.dry_run = true;
     context.variables = BTreeMap::from([
@@ -610,16 +608,12 @@ fn dry_run_full_pipeline_with_conditions() {
         ("target_repo_path".to_string(), "/tmp/shell".to_string()),
         ("target_agent".to_string(), "codex".to_string()),
         ("target_model".to_string(), "gpt-5.4".to_string()),
-        ("core_path".to_string(), "/tmp/core".to_string()),
-        ("shell_path".to_string(), "/tmp/shell".to_string()),
-        ("registry_path".to_string(), "/tmp/registry".to_string()),
-        ("website_path".to_string(), "/tmp/website".to_string()),
     ]);
     let mut engine = Engine {
         loader: FilesystemLoader,
         runtime: MockRuntime::default(),
         logger: MemoryLogger::default(),
-        blueprint_root: PathBuf::from("blueprints"),
+        blueprint_root: dir.path().join(".forge/blueprints"),
     };
 
     engine
@@ -640,7 +634,8 @@ fn repo_aliases_include_short_path_names() {
     )
     .expect("config should parse");
     let command = Commands::Run {
-        blueprint: "lint".to_string(),
+        blueprint_name: Some("lint".to_string()),
+        blueprint: None,
         repo: Some("warrant-core".to_string()),
         task: None,
         issue: None,
@@ -720,19 +715,14 @@ fn summary_format_failure() {
 
 #[test]
 fn cli_parses_notify_flag() {
-    let cli = Cli::try_parse_from([
-        "warrant-forge",
-        "run",
-        "implement-feature",
-        "--notify",
-        "openclaw,slack",
-    ])
-    .expect("cli should accept --notify");
+    let cli = Cli::try_parse_from(["forge", "run", "new-feature", "--notify", "openclaw,slack"])
+        .expect("cli should accept --notify");
 
     match cli.command {
         Commands::Run { notify, .. } => {
             assert_eq!(notify, vec!["openclaw".to_string(), "slack".to_string()]);
         }
+        other => panic!("unexpected command: {other:?}"),
     }
 }
 
@@ -743,10 +733,6 @@ fn openclaw_command_string_is_correct() {
         args,
         vec!["system", "event", "--text", "done", "--mode", "now"]
     );
-}
-
-fn manifest_path(relative: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join(relative)
 }
 
 fn step_result(name: &str, status: StepStatus) -> StepResult {
@@ -969,10 +955,7 @@ struct MemoryLogger {
 }
 
 impl RunLogger for MemoryLogger {
-    fn log_run_start(
-        &mut self,
-        _meta: &forge::logger::RunMeta,
-    ) -> Result<(), ForgeError> {
+    fn log_run_start(&mut self, _meta: &forge::logger::RunMeta) -> Result<(), ForgeError> {
         Ok(())
     }
 
@@ -981,10 +964,7 @@ impl RunLogger for MemoryLogger {
         Ok(())
     }
 
-    fn log_run_end(
-        &mut self,
-        _result: &forge::logger::RunEnd,
-    ) -> Result<(), ForgeError> {
+    fn log_run_end(&mut self, _result: &forge::logger::RunEnd) -> Result<(), ForgeError> {
         Ok(())
     }
 }
@@ -1047,9 +1027,9 @@ fn parses_forge_config_and_expands_repo_paths() {
 #[test]
 fn cli_parses_repo_run_shape_and_vars() {
     let cli = Cli::try_parse_from([
-        "warrant-forge",
+        "forge",
         "run",
-        "implement-feature",
+        "new-feature",
         "--repo",
         "warrant-shell",
         "--task",
@@ -1075,6 +1055,7 @@ fn cli_parses_repo_run_shape_and_vars() {
 
     match cli.command {
         Commands::Run {
+            blueprint_name,
             blueprint,
             repo,
             task,
@@ -1087,7 +1068,8 @@ fn cli_parses_repo_run_shape_and_vars() {
             vars,
             ..
         } => {
-            assert_eq!(blueprint, "implement-feature");
+            assert_eq!(blueprint_name.as_deref(), Some("new-feature"));
+            assert_eq!(blueprint, None);
             assert_eq!(repo.as_deref(), Some("warrant-shell"));
             assert_eq!(task.as_deref(), Some("add verbose flag"));
             assert_eq!(issue.as_deref(), Some("42"));
@@ -1104,6 +1086,7 @@ fn cli_parses_repo_run_shape_and_vars() {
                 ]
             );
         }
+        other => panic!("unexpected command: {other:?}"),
     }
 }
 
@@ -1129,7 +1112,8 @@ fn build_run_variables_applies_resolution_order() {
     .expect("config should parse");
 
     let command = Commands::Run {
-        blueprint: "implement-feature".to_string(),
+        blueprint_name: Some("implement-feature".to_string()),
+        blueprint: None,
         repo: Some("warrant-core".to_string()),
         task: Some("Add Verbose Flag".to_string()),
         issue: Some("42".to_string()),
@@ -1213,6 +1197,24 @@ fn build_run_variables_applies_resolution_order() {
         variables.get("shell_path").map(String::as_str),
         Some("/repos/warrant-shell")
     );
+}
+
+fn init_generated_project() -> TempDir {
+    let dir = tempdir().expect("tempdir");
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    )
+    .expect("write cargo");
+    init_project(
+        dir.path(),
+        &InitOptions {
+            project_type: None,
+            force: false,
+        },
+    )
+    .expect("init project");
+    dir
 }
 
 #[test]
