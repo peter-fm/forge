@@ -69,6 +69,8 @@ Forge inspects your project and auto-detects the stack:
 
 You can override: `forge init --type rust` or edit `.forge/config.toml` after.
 
+Detection also scans `.github/workflows/` YAML files for CI hints — if your CI already runs `cargo clippy --all-targets`, forge picks that up instead of the generic default.
+
 This creates:
 
 ```
@@ -77,18 +79,25 @@ This creates:
 ├── blueprints/
 │   ├── new-feature.toml     # implement a feature with gates
 │   ├── fix-bug.toml         # fix a bug with test verification
-│   └── refactor.toml        # refactor with lint + test gates
-└── instructions/            # task briefs go here
-    └── .gitkeep
+│   ├── refactor.toml        # refactor with lint + test + build gates
+│   └── code-review.toml     # structural review
+├── instructions/            # task briefs go here (gitignored)
+│   └── .gitkeep
+├── archive/                 # completed instructions (gitignored)
+└── runs/                    # JSONL run logs + status snapshots (gitignored)
 ```
+
+Forge also adds gitignore rules for instructions, archive, and runs, and creates a starter `AGENTS.md` if one doesn't exist.
 
 ### 2. Run a Blueprint
 
+Always explicit — every run has a task:
+
 ```bash
-# Inline task
+# Inline task (forge creates the instruction file automatically)
 forge run new-feature --task "Add dark mode support"
 
-# Or write detailed instructions first
+# Or write a detailed brief first, then point to it
 cat > .forge/instructions/dark-mode.md << 'EOF'
 ## Dark Mode Support
 
@@ -98,17 +107,86 @@ Add a dark mode toggle to the settings page.
 - Add tests for the toggle component
 EOF
 
-forge run new-feature
+forge run new-feature --instruction dark-mode.md
 ```
 
-The agent reads the instructions, implements, then hits the lint gate and the test gate. If either fails, it retries (up to the configured limit).
+When you use `--task`, forge creates a uniquely named instruction file (e.g. `add-dark-mode.2026-03-31T1325.codex.md`) in `.forge/instructions/`, passes the path to the blueprint as `{instruction_path}`, then runs the gates. If a gate fails, the agent retries.
 
-### 3. Check Status
+On success, the instruction file is automatically moved to `.forge/archive/`. On failure, it stays in `instructions/` for retry.
+
+Use `--task` or `--instruction`, not both.
+
+### 3. Check Status and Clean Up
 
 ```bash
 forge status          # current/most recent run
+forge status --all    # include completed runs
+forge status <run-id> # specific run
 forge list            # available blueprints
+forge clean           # list instruction files
+forge clean --archive # move completed instructions to archive
 ```
+
+## CLI Reference
+
+```
+forge init [--type <type>] [--force]
+forge run <blueprint> [options]
+forge generate [--type <type>] [--force]
+forge status [run-id] [--all]
+forge list
+forge clean [--archive] [--dry-run]
+```
+
+### `forge init`
+
+Auto-detect project type and create `.forge/` with config and default blueprints. If `.forge/config.toml` already exists and has been manually edited, use `--force` to overwrite.
+
+### `forge run`
+
+```
+Arguments:
+  <blueprint>           Blueprint name (new-feature, fix-bug, refactor, etc.)
+
+Options:
+  --task <text>         Task description — creates an instruction file automatically
+  --instruction <file>  Use an existing instruction file (in .forge/instructions/ or a path)
+  --repo <name>         Target repo (for multi-repo projects)
+  --issue <id>          GitHub issue number
+  --round <number>      Round number (e.g. for red-team)
+  --pr <number>         PR number (e.g. for merge)
+  --agent <name>        Override agent (codex | claude-code)
+  --model <name>        Override model
+  --branch <name>       Git branch name (auto-generated if omitted)
+  --var key=value       Override any variable (repeatable)
+  --notify <backends>   Notification backends, comma-separated (openclaw)
+  --dry-run             Print steps without executing
+  --verbose             Print step output as it runs
+```
+
+### `forge generate`
+
+Re-detect project type and regenerate `.forge/` files. Same as `init` but intended for updates when your stack changes.
+
+### `forge list`
+
+List available blueprints from `.forge/blueprints/`.
+
+### `forge clean`
+
+List instruction files in `.forge/instructions/`. With `--archive`, move them to `.forge/archive/`. With `--dry-run`, show what would happen without doing it.
+
+### Auto-Generated Branch Names
+
+If `--branch` is not provided, the engine generates one:
+
+| Blueprint | Branch Format |
+|-----------|---------------|
+| `implement-feature` | `feat/<task-slug>` |
+| `fix-bug` | `fix/<issue-id>` |
+| `code-review` | `refactor/code-review-<date>` |
+| `red-team` | `red-team/round-<N>` |
+| Other | `forge/<blueprint>-<date>` |
 
 ## Blueprints
 
@@ -124,7 +202,7 @@ type = "agentic"
 name = "implement"
 agent = "codex"
 model = "gpt-5.4"
-prompt = "Read .forge/instructions/. Implement the feature. Add tests. Commit."
+prompt = "Read your task instructions from {instruction_path}. Implement the feature. Add tests. Commit."
 max_retries = 2
 
 [[step]]
@@ -145,8 +223,25 @@ command = "cargo test"
 | `deterministic` | Runs a shell command. Pass/fail on exit code. |
 | `agentic` | Runs a coding agent (Codex, Claude Code). Optional retries. |
 | `gate` | Like deterministic, but failure stops the entire workflow. |
-| `conditional` | Runs only when a condition expression evaluates to true. |
+| `conditional` | Runs a command, sets a variable based on exit code. |
 | `blueprint` | Invokes another blueprint. Composable workflows. |
+
+### Step Options
+
+| Field | Types | Description |
+|-------|-------|-------------|
+| `command` | deterministic, conditional, gate | Shell command to run |
+| `agent` | agentic | Agent to dispatch to |
+| `model` | agentic | Model override |
+| `prompt` | agentic | Prompt text (supports `{variables}`) |
+| `blueprint` | blueprint | Sub-blueprint name |
+| `params` | blueprint | Variable mapping for sub-blueprint |
+| `condition` | any | Only run if condition is true (e.g. `lint.exit_code != 0`) |
+| `sets` | conditional | Variable name to set based on exit code |
+| `allow_failure` | any | Continue on failure instead of aborting |
+| `expect_failure` | any | Invert exit code (0 = fail, non-zero = pass) |
+| `max_retries` | agentic | Retry on failure up to N times |
+| `env` | any | Extra environment variables for this step |
 
 ### Agents
 
@@ -156,18 +251,49 @@ Built-in support for:
 
 ### Variables
 
-Blueprints support variable substitution:
+Blueprints support `{variable}` substitution:
+
+| Source | Variables |
+|--------|-----------|
+| `.forge/config.toml` commands | `{test_command}`, `{lint_command}`, `{build_command}` |
+| `--task` / `--instruction` | `{instruction_file}`, `{instruction_path}` |
+| `--var key=value` | `{key}` |
+| CLI flags | `{target_agent}`, `{target_model}`, `{branch}`, `{issue}`, etc. |
+| Auto-generated | `{date}`, `{forge_path}` |
+| Multi-repo config | `{<repo>_path}` for each `[repos.<name>]` entry |
+
+## Configuration
+
+`.forge/config.toml`:
 
 ```toml
-command = "{test_command}"     # resolved from .forge/config.toml
-prompt = "Fix issue #{issue}"  # resolved from --var issue=42
-```
+[project]
+type = "rust"
+name = "my-project"
 
-Variables come from: `.forge/config.toml` commands, `--var` flags, step outputs, and repo paths.
+[commands]
+test = "cargo test"
+lint = "cargo clippy -- -D warnings"
+build = "cargo build"
+
+[agent]
+default = "codex"               # default agent for agentic steps
+model = "gpt-5.4"               # default model
+
+[instructions]
+directory = "instructions"       # relative to .forge/
+gitignore = true                 # add instructions to .gitignore
+agents_md = "AGENTS.md"         # path to AGENTS.md (if detected)
+
+[workspace]
+instructions = "instructions"    # instruction file directory
+archive = "archive"              # completed instructions go here
+auto_archive = true              # archive on successful run
+```
 
 ## Multi-Repo Projects
 
-For projects spanning multiple repositories, put `.forge/` in the parent directory with a dependency DAG:
+For projects spanning multiple repositories, put `.forge/` in the parent directory:
 
 ```
 my-platform/
@@ -196,30 +322,7 @@ path = "api-server"
 path = "frontend"
 ```
 
-Blueprints reference repos and their paths are injected as `FORGE_<REPO>_PATH` environment variables. Sub-blueprints can target specific repos. Build order follows your dependency chain.
-
-## Configuration
-
-`.forge/config.toml`:
-
-```toml
-[project]
-type = "rust"
-name = "my-project"
-
-[commands]
-test = "cargo test"
-lint = "cargo clippy -- -D warnings"
-build = "cargo build"
-
-[agent]
-default = "codex"               # default agent for agentic steps
-model = "gpt-5.4"               # default model
-
-[instructions]
-directory = "instructions"       # relative to .forge/
-gitignore = true                 # add instructions to .gitignore
-```
+Repo paths are injected as variables: `core-lib` → `{core_lib_path}`. Sub-blueprints can target specific repos. Build order follows your dependency chain.
 
 ## Using with AI Agent Frameworks
 
@@ -235,13 +338,6 @@ EOF
 
 # Then runs the blueprint
 forge run new-feature
-```
-
-The skill teaches System 2 to check for `.forge/` and use it when present. Install the skill:
-
-```bash
-# Copy the forge skill into Kahneman's skills directory
-cp skills/forge.md ~/.kahneman/skills/
 ```
 
 ### With OpenClaw
@@ -269,23 +365,20 @@ Any agent that reads `AGENTS.md` will discover the workflow.
 
 ### As a Pi Skill
 
-Forge ships with a Pi-compatible skill definition. Install it directly:
+Forge ships with a Pi-compatible skill definition (`skills/forge.md`). Install it directly:
 
 ```bash
-# From the repo
 cp skills/forge.md ~/.pi/agent/skills/
-
-# Or download from GitHub
-curl -o ~/.pi/agent/skills/forge.md https://raw.githubusercontent.com/peter-fm/forge/master/skills/forge.md
 ```
 
-Pi auto-discovers skills in `~/.pi/agent/skills/`. Once installed, the skill teaches the agent:
+Pi auto-discovers skills in `~/.pi/agent/skills/`. The skill teaches the agent to check for `.forge/`, read the config, write task instructions, and run the appropriate blueprint.
 
-1. Check for `.forge/` in the current project
-2. If present, read `.forge/config.toml` for project context
-3. Write task instructions to `.forge/instructions/`
-4. Run the appropriate blueprint
-5. Report results
+## Notifications
+
+`--notify openclaw` sends a system event when the run completes:
+
+- **Success:** `✅ new-feature completed: 3/3 steps passed`
+- **Failure:** `❌ new-feature failed at step 'test': 2/3 steps completed`
 
 ## Regenerating Blueprints
 
@@ -296,26 +389,42 @@ forge generate              # re-detect and regenerate
 forge generate --force      # overwrite even if manually edited
 ```
 
+## Build
+
+```bash
+cargo build
+cargo test
+```
+
 ## Project Structure
 
 ```
 forge/
 ├── src/
 │   ├── main.rs             # CLI entry point
-│   ├── cli.rs              # clap argument parsing
-│   ├── commands/            # init, run, generate, status, list
-│   ├── detect.rs           # project type detection
-│   ├── runner.rs           # blueprint execution engine
-│   ├── model.rs            # blueprint/step data model
-│   ├── config.rs           # .forge/config.toml loading
-│   ├── dispatch.rs         # agent dispatch (codex, claude-code)
-│   ├── condition.rs        # conditional expression evaluation
-│   ├── vars.rs             # variable substitution
-│   ├── parser.rs           # TOML blueprint parsing
-│   ├── run_status.rs       # execution status tracking
+│   ├── cli.rs              # clap argument parsing (init, run, generate, status, list, clean)
+│   ├── commands/
+│   │   ├── init.rs         # forge init — project detection + .forge/ scaffolding
+│   │   ├── run.rs          # forge run — blueprint execution with instruction lifecycle
+│   │   ├── generate.rs     # forge generate — re-detect and regenerate
+│   │   ├── status.rs       # forge status — display run snapshots
+│   │   ├── list.rs         # forge list — enumerate available blueprints
+│   │   └── clean.rs        # forge clean — list/archive instruction files
+│   ├── detect.rs           # project type detection (Rust, Go, Python, Bun, Node, Make)
+│   ├── runner.rs           # blueprint execution engine (Engine<L,R,G>)
+│   ├── model.rs            # Blueprint, Step, StepType, RunContext, RunSummary
+│   ├── config.rs           # .forge/config.toml loading + variable resolution
+│   ├── workspace.rs        # instruction file creation, archival, and cleanup
+│   ├── dispatch.rs         # agent dispatch (Codex via tmux, Claude Code via --print)
+│   ├── condition.rs        # conditional expression evaluation (==, !=, &&, ||)
+│   ├── vars.rs             # {variable} substitution
+│   ├── parser.rs           # TOML blueprint parsing + validation
+│   ├── run_id.rs           # unique run ID generation
+│   ├── run_status.rs       # JSON run status snapshots (.forge/runs/)
 │   ├── logger.rs           # JSONL run logging
-│   └── notify.rs           # completion notifications
-├── tests/                   # 56 tests
+│   ├── notify.rs           # completion notifications (OpenClaw backend)
+│   └── error.rs            # ForgeError
+├── tests/
 ├── skills/
 │   └── forge.md            # Pi/Kahneman skill definition
 ├── Cargo.toml
