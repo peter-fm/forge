@@ -30,6 +30,7 @@ prompt = "Read {instruction_path}"
             ".forge/blueprints/demo.toml",
             "--task",
             "Add WebSocket support",
+            "--no-dashboard",
             "--dry-run",
         ])
         .current_dir(dir.path())
@@ -81,6 +82,7 @@ prompt = "Read {instruction_path}"
             ".forge/blueprints/demo.toml",
             "--instruction",
             "existing-task.md",
+            "--no-dashboard",
             "--dry-run",
             "--verbose",
         ])
@@ -122,6 +124,7 @@ prompt = "Read {instruction_path}"
             ".forge/blueprints/demo.toml",
             "--task",
             "Archive me",
+            "--no-dashboard",
             "--dry-run",
         ])
         .current_dir(dir.path())
@@ -161,6 +164,7 @@ command = "false"
             ".forge/blueprints/demo.toml",
             "--task",
             "Do not archive me",
+            "--no-dashboard",
         ])
         .current_dir(dir.path())
         .output()
@@ -188,8 +192,11 @@ auto_archive = {auto_archive}
         ),
     )
     .expect("write config");
-    fs::write(root.join(".forge/blueprints/demo.toml"), blueprint.trim_start())
-        .expect("write blueprint");
+    fs::write(
+        root.join(".forge/blueprints/demo.toml"),
+        blueprint.trim_start(),
+    )
+    .expect("write blueprint");
 }
 
 fn instruction_file_names(path: &Path) -> Vec<String> {

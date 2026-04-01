@@ -1,3 +1,4 @@
+use crate::dashboard::{DashboardObserver, StepStatus as DashboardStepStatus};
 use crate::error::ForgeError;
 use crate::logger::RunLogger;
 use crate::model::{Blueprint, RunContext, RunSummary, Step, StepResult, StepStatus, StepType};
@@ -5,7 +6,7 @@ use crate::run_status;
 use crate::{condition, vars};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionOutput {
@@ -41,6 +42,7 @@ pub struct Engine<L, R, G> {
     pub runtime: R,
     pub logger: G,
     pub blueprint_root: PathBuf,
+    pub dashboard: Option<DashboardObserver>,
 }
 
 impl<L, R, G> Engine<L, R, G>
@@ -87,12 +89,22 @@ where
         blueprint: &Blueprint,
         context: &mut RunContext,
     ) -> Result<RunSummary, ForgeError> {
+        let is_root = context.blueprint_stack.len() == 1;
         let mut summary_steps = Vec::new();
         let mut index = 0;
 
         while index < blueprint.steps.len() {
             let step = &blueprint.steps[index];
             if !should_run(step, context)? {
+                if is_root {
+                    self.finish_dashboard_step(
+                        index,
+                        step,
+                        DashboardStepStatus::Skipped,
+                        None,
+                        None,
+                    );
+                }
                 let result = StepResult {
                     name: step.name.clone(),
                     step_type: step.step_type.clone(),
@@ -112,12 +124,25 @@ where
                 .step_started_at
                 .entry(step.name.clone())
                 .or_insert(now_secs()?);
+            let started_at = Instant::now();
+            if is_root {
+                self.start_dashboard_step(index, step);
+            }
             self.write_status_snapshot(blueprint, context, Some(&step.name), "running")?;
 
             if step.step_type == StepType::Agentic && step.max_retries.unwrap_or(0) > 0 {
                 let retry_target = self.determine_retry_target(blueprint, index, context);
                 let (agent_result, retry_result, consumed_next) =
                     self.run_agentic_with_retries(step, retry_target.as_ref(), context)?;
+                if is_root {
+                    self.finish_dashboard_step(
+                        index,
+                        step,
+                        dashboard_status(&agent_result.status),
+                        Some(join_step_output(&agent_result)),
+                        Some(started_at.elapsed().as_millis() as u64),
+                    );
+                }
                 self.record_result(context, &mut summary_steps, agent_result)?;
                 if consumed_next {
                     if let Some(target_result) = retry_result {
@@ -142,6 +167,15 @@ where
                         step.name
                     ))
                 })?;
+                if is_root {
+                    self.finish_dashboard_step(
+                        index,
+                        step,
+                        dashboard_status(&parent_result.status),
+                        Some(join_step_output(&parent_result)),
+                        Some(started_at.elapsed().as_millis() as u64),
+                    );
+                }
                 let failed = parent_result.status == StepStatus::Failed;
                 for result in results {
                     self.record_result(context, &mut summary_steps, result)?;
@@ -161,6 +195,15 @@ where
             }
 
             let result = self.run_single_step(step, context)?;
+            if is_root {
+                self.finish_dashboard_step(
+                    index,
+                    step,
+                    dashboard_status(&result.status),
+                    Some(join_step_output(&result)),
+                    Some(started_at.elapsed().as_millis() as u64),
+                );
+            }
             let should_abort = result.status == StepStatus::Failed && !step.allow_failure;
             let gate_failed =
                 step.step_type == StepType::Gate && result.status == StepStatus::Failed;
@@ -181,6 +224,25 @@ where
         Ok(RunSummary {
             steps: summary_steps,
         })
+    }
+
+    fn start_dashboard_step(&self, index: usize, step: &Step) {
+        if let Some(dashboard) = &self.dashboard {
+            dashboard.start_step(index, &step.name);
+        }
+    }
+
+    fn finish_dashboard_step(
+        &self,
+        index: usize,
+        step: &Step,
+        status: DashboardStepStatus,
+        output: Option<String>,
+        duration_ms: Option<u64>,
+    ) {
+        if let Some(dashboard) = &self.dashboard {
+            dashboard.finish_step(index, &step.name, status, output, duration_ms);
+        }
     }
 
     fn run_single_step(
@@ -474,6 +536,19 @@ where
             current_step,
             state,
         )
+    }
+}
+
+fn join_step_output(result: &StepResult) -> String {
+    vars::join_output(&result.stdout, &result.stderr)
+}
+
+fn dashboard_status(status: &StepStatus) -> DashboardStepStatus {
+    match status {
+        StepStatus::Pending => DashboardStepStatus::Pending,
+        StepStatus::Skipped => DashboardStepStatus::Skipped,
+        StepStatus::Succeeded => DashboardStepStatus::Passed,
+        StepStatus::Failed => DashboardStepStatus::Failed,
     }
 }
 

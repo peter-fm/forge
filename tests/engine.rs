@@ -630,6 +630,7 @@ fn dry_run_generated_pipeline() {
         runtime: MockRuntime::default(),
         logger: MemoryLogger::default(),
         blueprint_root: dir.path().join(".forge/blueprints"),
+        dashboard: None,
     };
 
     engine
@@ -662,6 +663,8 @@ fn repo_aliases_include_short_path_names() {
         model: None,
         branch: None,
         dry_run: false,
+        no_dashboard: false,
+        port: 8400,
         notify: Vec::new(),
         verbose: false,
         vars: Vec::new(),
@@ -843,6 +846,7 @@ fn test_engine(
         runtime,
         logger,
         blueprint_root: PathBuf::from("blueprints"),
+        dashboard: None,
     }
 }
 
@@ -1141,6 +1145,8 @@ fn build_run_variables_applies_resolution_order() {
         model: None,
         branch: None,
         dry_run: false,
+        no_dashboard: false,
+        port: 8400,
         notify: Vec::new(),
         verbose: false,
         vars: vec![

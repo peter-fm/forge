@@ -6,6 +6,7 @@ pub mod cli;
 pub mod commands;
 pub mod condition;
 pub mod config;
+pub mod dashboard;
 pub mod detect;
 pub mod dispatch;
 pub mod error;

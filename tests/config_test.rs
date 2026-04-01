@@ -48,7 +48,10 @@ fn loads_dot_forge_config_sections() {
     );
     assert_eq!(config.instructions.gitignore, Some(true));
     assert_eq!(config.instructions.agents_md.as_deref(), Some("AGENTS.md"));
-    assert_eq!(config.workspace.instructions.as_deref(), Some("instructions"));
+    assert_eq!(
+        config.workspace.instructions.as_deref(),
+        Some("instructions")
+    );
     assert_eq!(config.workspace.archive.as_deref(), Some("archive"));
     assert_eq!(config.workspace.auto_archive, Some(true));
 }
@@ -85,6 +88,8 @@ fn build_run_variables_exposes_command_settings() {
         model: None,
         branch: None,
         dry_run: false,
+        no_dashboard: false,
+        port: 8400,
         notify: Vec::new(),
         verbose: false,
         vars: Vec::new(),
