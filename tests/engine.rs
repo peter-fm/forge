@@ -67,6 +67,13 @@ fn parses_generated_new_feature_blueprint() {
             .iter()
             .any(|step| step.max_retries == Some(2))
     );
+    assert!(blueprint.steps.iter().any(|step| step.name == "docs-check"));
+    assert!(
+        blueprint
+            .steps
+            .iter()
+            .any(|step| step.name == "docs-check" && step.allow_failure)
+    );
 }
 
 #[test]

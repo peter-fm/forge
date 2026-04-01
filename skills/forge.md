@@ -36,9 +36,9 @@ forge list
 ```
 
 Common blueprints:
-- `new-feature` — implement a feature with lint + test gates
-- `fix-bug` — fix a bug with regression test verification
-- `refactor` — refactor with lint + test gates
+- `new-feature` — implement a feature with lint + test gates, then run a docs check before PR creation
+- `fix-bug` — fix a bug with regression test verification, then run a docs check before PR creation
+- `refactor` — refactor with lint + test gates, then run a docs check before PR creation
 
 ### 4. Write task instructions
 
@@ -94,6 +94,7 @@ forge status
 - Always write clear instructions before running a blueprint
 - Don't bypass forge gates by editing code directly when a blueprint is available
 - If a blueprint fails after retries, report what went wrong — don't silently give up
+- Expect branching blueprints to include a `docs-check` step after verification gates and before PR creation
 - Check `forge status` and report the outcome to the user
 
 ## Blueprint Authoring
@@ -137,8 +138,9 @@ Use this when you need to create or extend `.forge/blueprints/*.toml`, not just 
 1. Deterministic gates before agentic steps. Validate the current state before asking an agent to continue.
 2. Agentic steps should be retryable. Set `max_retries` so the agent can recover from failed gates.
 3. Use sub-blueprints for reusable sequences. Shared lint, test, or setup flows belong in child blueprints.
-4. End branching workflows with PR creation. Feature branches should finish by opening a PR, not by stopping after a commit.
-5. Keep prompts specific. Tell the agent which files, commands, and outputs matter.
+4. Include a docs-check step in branching workflows after verification gates and before PR creation. The step should review `README.md`, `docs/`, and `AGENTS.md`, and `allow_failure = true` so the branch can still proceed if nothing needs updating or the check fails.
+5. End branching workflows with PR creation. Feature branches should finish by opening a PR, not by stopping after a commit.
+6. Keep prompts specific. Tell the agent which files, commands, and outputs matter.
 
 ### Worked Example
 

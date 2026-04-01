@@ -53,6 +53,9 @@ fn init_creates_forge_layout_and_gitignore_entries() {
     let blueprint = fs::read_to_string(dir.path().join(".forge/blueprints/new-feature.toml"))
         .expect("read new-feature blueprint");
     assert!(blueprint.contains("Read your task instructions from {instruction_path}."));
+    assert!(blueprint.contains("name = \"docs-check\""));
+    assert!(blueprint.contains("git diff main...HEAD --name-only"));
+    assert!(blueprint.contains("allow_failure = true"));
     assert!(blueprint.contains("name = \"write-pr\""));
     assert!(blueprint.contains("name = \"verify-pr\""));
     assert!(!blueprint.contains("{run_id}"));

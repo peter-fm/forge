@@ -110,7 +110,7 @@ EOF
 forge run new-feature --instruction dark-mode.md
 ```
 
-When you use `--task`, forge creates a uniquely named instruction file (e.g. `add-dark-mode.2026-03-31T1325.codex.md`) in `.forge/instructions/`, passes the path to the blueprint as `{instruction_path}`, then runs the gates. If a gate fails, the agent retries.
+When you use `--task`, forge creates a uniquely named instruction file (e.g. `add-dark-mode.2026-03-31T1325.codex.md`) in `.forge/instructions/`, passes the path to the blueprint as `{instruction_path}`, runs the gates, and for branching blueprints runs a non-blocking `docs-check` step before PR creation. If a gate fails, the agent retries.
 
 On success, the instruction file is automatically moved to `.forge/archive/`. On failure, it stays in `instructions/` for retry.
 
@@ -214,6 +214,14 @@ command = "cargo clippy -- -D warnings"
 type = "deterministic"
 name = "test"
 command = "cargo test"
+
+[[step]]
+type = "agentic"
+name = "docs-check"
+agent = "codex"
+model = "gpt-5.4"
+prompt = "Review the recent code changes and update affected docs if needed."
+allow_failure = true
 ```
 
 ### Step Types

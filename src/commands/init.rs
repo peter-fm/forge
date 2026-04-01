@@ -115,6 +115,7 @@ pub fn render_new_feature_blueprint(detected: &DetectedProject) -> String {
         output.push_str("name = \"test\"\n");
         output.push_str(&format!("command = \"{}\"\n\n", escape_toml(command)));
     }
+    append_docs_check_step(&mut output);
     append_write_pr_steps(&mut output);
     output
 }
@@ -137,6 +138,7 @@ pub fn render_fix_bug_blueprint(detected: &DetectedProject) -> String {
         output.push_str("name = \"test\"\n");
         output.push_str(&format!("command = \"{}\"\n\n", escape_toml(command)));
     }
+    append_docs_check_step(&mut output);
     append_write_pr_steps(&mut output);
     output
 }
@@ -171,6 +173,7 @@ pub fn render_refactor_blueprint(detected: &DetectedProject) -> String {
         output.push_str("name = \"build\"\n");
         output.push_str(&format!("command = \"{}\"\n\n", escape_toml(command)));
     }
+    append_docs_check_step(&mut output);
     append_write_pr_steps(&mut output);
     output
 }
@@ -241,6 +244,16 @@ fn append_write_pr_steps(output: &mut String) {
     output.push_str("type = \"deterministic\"\n");
     output.push_str("name = \"verify-pr\"\n");
     output.push_str("command = \"gh pr view --json number,title,url --jq '.url'\"\n");
+}
+
+fn append_docs_check_step(output: &mut String) {
+    output.push_str("[[step]]\n");
+    output.push_str("type = \"agentic\"\n");
+    output.push_str("name = \"docs-check\"\n");
+    output.push_str("agent = \"{target_agent}\"\n");
+    output.push_str("model = \"{target_model}\"\n");
+    output.push_str("prompt = \"\"\"Review the changes you just made and check if the project documentation needs updating.\n\n1. Run `git diff main...HEAD --name-only` to see what files changed.\n2. Read README.md (if it exists) and check if any of these are now outdated:\n   - Feature descriptions that no longer match the code\n   - CLI usage examples that have changed\n   - Installation instructions that need updating\n   - Configuration options that were added or removed\n   - Project structure sections that don't reflect new/moved files\n3. Check docs/ directory (if it exists) for any files affected by your changes.\n4. Check AGENTS.md (if it exists) for outdated workflow instructions.\n5. If anything needs updating, make the changes and commit with message \\\"docs: update documentation to reflect recent changes\\\".\n6. If everything is already accurate, do nothing — don't make changes for the sake of it.\n\nOnly update documentation that is genuinely affected by the code changes. Do not rewrite docs that are still correct.\n\"\"\"\n");
+    output.push_str("allow_failure = true\n\n");
 }
 
 pub fn ensure_instructions_gitignore(root: &Path) -> Result<(), ForgeError> {

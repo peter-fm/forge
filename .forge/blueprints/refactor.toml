@@ -38,3 +38,25 @@ command = "cargo clippy -- -D warnings"
 type = "gate"
 name = "test"
 command = "cargo test"
+
+[[step]]
+type = "agentic"
+name = "docs-check"
+agent = "codex"
+model = "gpt-5.4"
+prompt = """Review the changes you just made and check if the project documentation needs updating.
+
+1. Run `git diff main...HEAD --name-only` to see what files changed.
+2. Read README.md (if it exists) and check if any of these are now outdated:
+   - Feature descriptions that no longer match the code
+   - CLI usage examples that have changed
+   - Installation instructions that need updating
+   - Configuration options that were added or removed
+   - Project structure sections that don't reflect new/moved files
+3. Check docs/ directory (if it exists) for any files affected by your changes.
+4. Check AGENTS.md (if it exists) for outdated workflow instructions.
+5. If anything needs updating, make the changes and commit with message "docs: update documentation to reflect recent changes".
+6. If everything is already accurate, do nothing — don't make changes for the sake of it.
+
+Only update documentation that is genuinely affected by the code changes. Do not rewrite docs that are still correct."""
+allow_failure = true
