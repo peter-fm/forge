@@ -1,29 +1,15 @@
+# forge-generated
 [blueprint]
 name = "new-feature"
-description = "Implement a new feature in forge with full verification"
+description = "Implement a new feature with lint and test gates"
 
 [[step]]
 type = "agentic"
 name = "implement"
-agent = "codex"
-model = "gpt-5.4"
-prompt = """Read the task instructions in .forge/instructions/.
-Read CODEX_BRIEF.md and README.md for project context.
-Read the existing source files in src/ that are relevant to the task.
-
-Implement the feature described in the instructions.
-- Add tests for new functionality in tests/
-- Follow existing code patterns (see src/runner.rs for the engine style)
-- Use Rust 2024 edition idioms
-- Keep the engine core (runner.rs, model.rs, condition.rs, vars.rs) stable — prefer additive changes
-
-Commit your changes with a conventional commit message (feat: ...)."""
-max_retries = 3
-
-[[step]]
-type = "deterministic"
-name = "format"
-command = "cargo fmt -- --check"
+agent = "{target_agent}"
+model = "{target_model}"
+prompt = """Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Implement the feature described there. Make sure to add tests for new functionality. Commit your changes."""
+max_retries = 2
 
 [[step]]
 type = "deterministic"
@@ -31,15 +17,15 @@ name = "lint"
 command = "cargo clippy -- -D warnings"
 
 [[step]]
-type = "gate"
+type = "deterministic"
 name = "test"
 command = "cargo test"
 
 [[step]]
 type = "agentic"
 name = "docs-check"
-agent = "codex"
-model = "gpt-5.4"
+agent = "{target_agent}"
+model = "{target_model}"
 prompt = """Review the changes you just made and check if the project documentation needs updating.
 
 1. Run `git diff main...HEAD --name-only` to see what files changed.
@@ -51,8 +37,30 @@ prompt = """Review the changes you just made and check if the project documentat
    - Project structure sections that don't reflect new/moved files
 3. Check docs/ directory (if it exists) for any files affected by your changes.
 4. Check AGENTS.md (if it exists) for outdated workflow instructions.
-5. If anything needs updating, make the changes and commit with message "docs: update documentation to reflect recent changes".
+5. If anything needs updating, make the changes and commit with message \"docs: update documentation to reflect recent changes\".
 6. If everything is already accurate, do nothing — don't make changes for the sake of it.
 
-Only update documentation that is genuinely affected by the code changes. Do not rewrite docs that are still correct."""
+Only update documentation that is genuinely affected by the code changes. Do not rewrite docs that are still correct.
+"""
 allow_failure = true
+
+[[step]]
+type = "agentic"
+name = "write-pr"
+agent = "{target_agent}"
+model = "{target_model}"
+prompt = """You have just completed work on this branch. Now write up a pull request.
+
+1. Run `git diff main...HEAD` to see everything you changed.
+2. Read the original task instructions at {instruction_path}.
+3. Write a PR description covering:
+   - What problem this solves (from the task brief)
+   - How you solved it (architectural decisions, key changes)
+   - What changed (files modified, new files, removed files)
+   - How to verify (what tests cover this, how to manually check)
+4. Open the PR: `gh pr create --base main --title \"<concise title>\" --body \"<your description>\"`"""
+
+[[step]]
+type = "deterministic"
+name = "verify-pr"
+command = "gh pr view --json number,title,url --jq '.url'"

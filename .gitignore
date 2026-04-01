@@ -1,3 +1,5 @@
 /target
 .forge/instructions/*
 !.forge/instructions/.gitkeep
+.forge/archive/
+.forge/runs/
