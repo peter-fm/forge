@@ -76,13 +76,36 @@ fn run_codex(
         .get("FORGE_CODEX_FLAGS")
         .cloned()
         .unwrap_or_else(|| "--yolo".to_string());
+
+    // Write prompt to a temp file and launch via a wrapper script to avoid
+    // shell quoting issues with complex prompts containing quotes/special chars.
+    let prompt_file = std::env::temp_dir().join(format!("forge-prompt-{}.md", sanitize_session_name(step_name)));
+    std::fs::write(&prompt_file, prompt).map_err(|err| {
+        ForgeError::message(format!("failed to write prompt file: {err}"))
+    })?;
+    let script_file = std::env::temp_dir().join(format!("forge-run-{}.sh", sanitize_session_name(step_name)));
+    std::fs::write(
+        &script_file,
+        format!(
+            "#!/bin/bash\ncd {}\nexec codex {} --model {} exec \"$(cat {})\"",
+            shell_quote(&repo_path),
+            codex_flags,
+            shell_quote(model),
+            shell_quote(&prompt_file.to_string_lossy()),
+        ),
+    )
+    .map_err(|err| ForgeError::message(format!("failed to write script file: {err}")))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script_file, std::fs::Permissions::from_mode(0o755))
+            .map_err(|err| ForgeError::message(format!("failed to chmod script: {err}")))?;
+    }
+
     let start = format!(
-        "tmux new-session -d -s {} -c {} \"codex {} --model {} exec {}\"",
+        "tmux new-session -d -s {} {}",
         shell_quote(&session_name),
-        shell_quote(&repo_path),
-        codex_flags,
-        shell_quote(model),
-        shell_quote(prompt)
+        shell_quote(&script_file.to_string_lossy()),
     );
     let start_result = run_shell(&start, env)?;
     if start_result.exit_code != 0 {
