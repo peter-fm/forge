@@ -31,6 +31,7 @@ fn init_creates_forge_layout_and_gitignore_entries() {
     );
     assert!(dir.path().join(".forge/blueprints/fix-bug.toml").exists());
     assert!(dir.path().join(".forge/blueprints/refactor.toml").exists());
+    assert!(dir.path().join(".forge/blueprints/pr-review.toml").exists());
     assert!(dir.path().join(".forge/instructions/.gitkeep").exists());
     assert!(dir.path().join(".forge/archive").exists());
     assert!(dir.path().join(".forge/.gitignore").exists());
@@ -52,7 +53,16 @@ fn init_creates_forge_layout_and_gitignore_entries() {
     let blueprint = fs::read_to_string(dir.path().join(".forge/blueprints/new-feature.toml"))
         .expect("read new-feature blueprint");
     assert!(blueprint.contains("Read your task instructions from {instruction_path}."));
+    assert!(blueprint.contains("name = \"write-pr\""));
+    assert!(blueprint.contains("name = \"verify-pr\""));
     assert!(!blueprint.contains("{run_id}"));
+
+    let pr_review = fs::read_to_string(dir.path().join(".forge/blueprints/pr-review.toml"))
+        .expect("read pr-review blueprint");
+    assert!(pr_review.contains("name = \"pr-review\""));
+    assert!(pr_review.contains("gh pr checkout {pr}"));
+    assert!(pr_review.contains("name = \"post-merge-test\""));
+    assert!(pr_review.contains("name = \"post-merge-lint\""));
 }
 
 #[test]

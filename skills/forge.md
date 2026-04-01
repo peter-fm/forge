@@ -95,3 +95,86 @@ forge status
 - Don't bypass forge gates by editing code directly when a blueprint is available
 - If a blueprint fails after retries, report what went wrong — don't silently give up
 - Check `forge status` and report the outcome to the user
+
+## Blueprint Authoring
+
+Use this when you need to create or extend `.forge/blueprints/*.toml`, not just run an existing one.
+
+### TOML Schema Reference
+
+`[blueprint]`
+- `name`: blueprint name, normally matching the filename without `.toml`
+- `description`: short human-readable summary shown by `forge list`
+
+`[[step]]`
+- `type`: one of `deterministic`, `agentic`, `gate`, `conditional`, `blueprint`
+- `name`: unique step identifier within the blueprint
+- `command`: shell command for `deterministic`, `gate`, and `conditional` steps
+- `agent`: agent name for `agentic` steps, typically `codex` or `claude-code`
+- `model`: optional model override for an `agentic` step
+- `prompt`: prompt text for an `agentic` step; supports `{variables}`
+- `blueprint`: sub-blueprint name for `blueprint` steps
+- `params`: inline table mapping variables passed into a sub-blueprint
+- `condition`: boolean expression controlling whether the step runs
+- `sets`: variable name populated by a `conditional` step from its exit code
+- `allow_failure`: if `true`, the workflow continues even when the step fails
+- `expect_failure`: if `true`, a non-zero exit code is treated as success
+- `max_retries`: retry count for `agentic` steps
+- `env`: inline table of extra environment variables for that step
+
+### Available Variables
+
+- Config commands: `{test_command}`, `{lint_command}`, `{build_command}`
+- CLI flags: `{instruction_path}`, `{branch}`, `{issue}`, `{pr}`, `{round}`
+- `--var` overrides: `{key}` for any `--var key=value`
+- Auto-generated: `{date}`, `{forge_path}`
+- Multi-repo config: `{repo_name_path}` for each configured repo
+- Conditional outputs: `{step_name.exit_code}`
+- Agent selection: `{target_agent}`, `{target_model}`
+
+### Design Principles
+
+1. Deterministic gates before agentic steps. Validate the current state before asking an agent to continue.
+2. Agentic steps should be retryable. Set `max_retries` so the agent can recover from failed gates.
+3. Use sub-blueprints for reusable sequences. Shared lint, test, or setup flows belong in child blueprints.
+4. End branching workflows with PR creation. Feature branches should finish by opening a PR, not by stopping after a commit.
+5. Keep prompts specific. Tell the agent which files, commands, and outputs matter.
+
+### Worked Example
+
+```toml
+[blueprint]
+name = "security-audit"
+description = "Audit recent changes for security regressions and report findings"
+
+[[step]]
+type = "deterministic"
+name = "build"
+command = "{build_command}"
+
+[[step]]
+type = "agentic"
+name = "audit"
+agent = "{target_agent}"
+model = "{target_model}"
+prompt = """Review the current branch for security issues.
+
+1. Run `git diff main...HEAD` to scope the recent changes.
+2. Inspect authentication, authorization, and secret handling code paths.
+3. Check inputs that reach shells, SQL, templates, file paths, or network calls.
+4. Look for missing validation, unsafe defaults, and logging of sensitive data.
+5. Write findings to `.forge/instructions/security-audit-report.md` with severity, evidence, and recommended fixes.
+"""
+max_retries = 1
+
+[[step]]
+type = "deterministic"
+name = "test"
+command = "{test_command}"
+
+[[step]]
+type = "deterministic"
+name = "lint"
+command = "{lint_command}"
+allow_failure = true
+```

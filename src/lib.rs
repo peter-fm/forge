@@ -1,3 +1,7 @@
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::large_enum_variant)]
+#![allow(clippy::unnecessary_lazy_evaluations)]
+
 pub mod cli;
 pub mod commands;
 pub mod condition;
