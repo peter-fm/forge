@@ -324,54 +324,62 @@ path = "frontend"
 
 Repo paths are injected as variables: `core-lib` → `{core_lib_path}`. Sub-blueprints can target specific repos. Build order follows your dependency chain.
 
-## Using with AI Agent Frameworks
+## Using with Coding Agents
 
-### With Kahneman (Pi SDK)
-
-Forge works as a tool for Kahneman's System 2. Instead of raw `codex exec` calls, System 2 runs structured workflows:
+### Claude Code
 
 ```bash
-# System 2 writes the task brief
-cat > .forge/instructions/current.md << 'EOF'
-Add browser access to the agent via CDP.
-EOF
+# Use Claude Code as the implementing agent
+forge run new-feature \
+  --task "Add rate limiting to the API" \
+  --agent claude-code \
+  --model claude-sonnet-4-20250514
 
-# Then runs the blueprint
-forge run new-feature
+# Review and merge an open PR
+forge run pr-review --pr 12 --agent claude-code
 ```
 
-### With OpenClaw
-
-Any OpenClaw agent can use forge via bash:
+### Codex
 
 ```bash
-cd /path/to/project
-forge run fix-bug --task "Fix the memory leak in the connection pool"
+# Use Codex as the implementing agent
+forge run fix-bug \
+  --task "Fix the null pointer in parse_config" \
+  --agent codex \
+  --model gpt-5.4
+
+# Refactor with Codex
+forge run refactor --task "Extract the auth middleware into its own module"
 ```
 
-### With Claude Code / Codex Directly
+### Adding Forge to Your Repo
 
-Add to your project's `AGENTS.md`:
+Add this to your project's `AGENTS.md` so any agent that reads it discovers the workflow:
 
 ```markdown
 ## Development Workflow
 
 This project uses forge for development guardrails.
-Before making changes, check `.forge/` for available blueprints.
+Run `forge list` to see available blueprints.
 Run `forge run <blueprint> --task "your task"` instead of making changes directly.
 ```
 
-Any agent that reads `AGENTS.md` will discover the workflow.
+### Parallel Agents
 
-### As a Pi Skill
-
-Forge ships with a Pi-compatible skill definition (`skills/forge.md`). Install it directly:
+Multiple agents can work on different features simultaneously. Each `forge run` creates its own branch. When you're ready to merge:
 
 ```bash
-cp skills/forge.md ~/.pi/agent/skills/
+# Review and merge each PR in turn
+forge run pr-review --pr 10
+forge run pr-review --pr 11
+forge run pr-review --pr 12
 ```
 
-Pi auto-discovers skills in `~/.pi/agent/skills/`. The skill teaches the agent to check for `.forge/`, read the config, write task instructions, and run the appropriate blueprint.
+The pr-review blueprint handles merge conflicts from earlier merges automatically.
+
+### Agent Skill
+
+Forge ships with a skill definition (`skills/forge.md`) compatible with agent frameworks that support skill discovery. It teaches the agent the full blueprint TOML schema so it can both use existing blueprints and author new ones.
 
 ## Notifications
 
@@ -426,7 +434,7 @@ forge/
 │   └── error.rs            # ForgeError
 ├── tests/
 ├── skills/
-│   └── forge.md            # Pi/Kahneman skill definition
+│   └── forge.md            # agent skill definition
 ├── Cargo.toml
 └── README.md
 ```
