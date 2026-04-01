@@ -80,7 +80,7 @@ This creates:
 │   ├── new-feature.toml     # implement a feature with gates
 │   ├── fix-bug.toml         # fix a bug with test verification
 │   ├── refactor.toml        # refactor with lint + test + build gates
-│   └── code-review.toml     # structural review
+│   └── pr-review.toml       # review, merge, and verify an open PR
 ├── instructions/            # task briefs go here (gitignored)
 │   └── .gitkeep
 ├── archive/                 # completed instructions (gitignored)
@@ -110,7 +110,7 @@ EOF
 forge run new-feature --instruction dark-mode.md
 ```
 
-When you use `--task`, forge creates a uniquely named instruction file (e.g. `add-dark-mode.2026-03-31T1325.codex.md`) in `.forge/instructions/`, passes the path to the blueprint as `{instruction_path}`, runs the gates, and for branching blueprints runs a non-blocking `docs-check` step before PR creation. If a gate fails, the agent retries.
+When you use `--task`, forge creates a uniquely named instruction file (e.g. `add-dark-mode.2026-03-31T1325.codex.md`) in `.forge/instructions/`, passes the path to the blueprint as `{instruction_path}`, runs the gates, and for branching blueprints runs a non-blocking `docs-check` step before PR creation. By default `forge run` also starts a local dashboard on port `8400` and increments to the next free port when needed; use `--no-dashboard` to disable it or `--port` to choose a starting port. If a gate fails, the agent retries.
 
 On success, the instruction file is automatically moved to `.forge/archive/`. On failure, it stays in `instructions/` for retry.
 
@@ -131,7 +131,7 @@ forge clean --archive # move completed instructions to archive
 
 ```
 forge init [--type <type>] [--force]
-forge run <blueprint> [options]
+forge run [--blueprint <path>] [options] [blueprint]
 forge generate [--type <type>] [--force]
 forge status [run-id] [--all]
 forge list
@@ -146,9 +146,10 @@ Auto-detect project type and create `.forge/` with config and default blueprints
 
 ```
 Arguments:
-  <blueprint>           Blueprint name (new-feature, fix-bug, refactor, etc.)
+  [BLUEPRINT_NAME]      Blueprint name (new-feature, fix-bug, refactor, pr-review, etc.)
 
 Options:
+  --blueprint <path>      Run a blueprint from an explicit file path
   --task <text>         Task description — creates an instruction file automatically
   --instruction <file>  Use an existing instruction file (in .forge/instructions/ or a path)
   --repo <name>         Target repo (for multi-repo projects)
@@ -159,6 +160,8 @@ Options:
   --model <name>        Override model
   --branch <name>       Git branch name (auto-generated if omitted)
   --var key=value       Override any variable (repeatable)
+  --no-dashboard        Disable the local run dashboard
+  --port <port>         Starting port for the local dashboard (default: 8400)
   --notify <backends>   Notification backends, comma-separated (openclaw)
   --dry-run             Print steps without executing
   --verbose             Print step output as it runs
@@ -417,6 +420,7 @@ cargo test
 ```
 forge/
 ├── src/
+│   ├── lib.rs               # library entry point shared by the binary and tests
 │   ├── main.rs             # CLI entry point
 │   ├── cli.rs              # clap argument parsing (init, run, generate, status, list, clean)
 │   ├── commands/
@@ -430,6 +434,8 @@ forge/
 │   ├── runner.rs           # blueprint execution engine (Engine<L,R,G>)
 │   ├── model.rs            # Blueprint, Step, StepType, RunContext, RunSummary
 │   ├── config.rs           # .forge/config.toml loading + variable resolution
+│   ├── dashboard/
+│   │   └── mod.rs          # local run dashboard server and status API
 │   ├── workspace.rs        # instruction file creation, archival, and cleanup
 │   ├── dispatch.rs         # agent dispatch (Codex via tmux, Claude Code via --print)
 │   ├── condition.rs        # conditional expression evaluation (==, !=, &&, ||)
