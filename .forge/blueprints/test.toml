@@ -1,0 +1,9 @@
+# forge-generated
+[blueprint]
+name = "test"
+description = "Run the project's test command"
+
+[[step]]
+type = "deterministic"
+name = "test"
+command = "cargo test"

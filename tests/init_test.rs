@@ -32,6 +32,7 @@ fn init_creates_forge_layout_and_gitignore_entries() {
     assert!(dir.path().join(".forge/blueprints/fix-bug.toml").exists());
     assert!(dir.path().join(".forge/blueprints/refactor.toml").exists());
     assert!(dir.path().join(".forge/blueprints/pr-review.toml").exists());
+    assert!(dir.path().join(".forge/blueprints/test.toml").exists());
     assert!(dir.path().join(".forge/instructions/.gitkeep").exists());
     assert!(dir.path().join(".forge/archive").exists());
     assert!(dir.path().join(".forge/.gitignore").exists());
@@ -66,6 +67,12 @@ fn init_creates_forge_layout_and_gitignore_entries() {
     assert!(pr_review.contains("gh pr checkout {pr}"));
     assert!(pr_review.contains("name = \"post-merge-test\""));
     assert!(pr_review.contains("name = \"post-merge-lint\""));
+
+    let test_blueprint = fs::read_to_string(dir.path().join(".forge/blueprints/test.toml"))
+        .expect("read test blueprint");
+    assert!(test_blueprint.contains("name = \"test\""));
+    assert!(test_blueprint.contains("description = \"Run the project's test command\""));
+    assert!(test_blueprint.contains("command = \"cargo test\""));
 }
 
 #[test]

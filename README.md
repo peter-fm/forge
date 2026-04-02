@@ -80,6 +80,7 @@ This creates:
 │   ├── new-feature.toml     # implement a feature with gates
 │   ├── fix-bug.toml         # fix a bug with test verification
 │   ├── refactor.toml        # refactor with lint + test + build gates
+│   ├── test.toml            # run the detected test command directly
 │   └── pr-review.toml       # review, merge, and verify an open PR
 ├── instructions/            # task briefs go here (gitignored)
 │   └── .gitkeep
@@ -108,6 +109,9 @@ Add a dark mode toggle to the settings page.
 EOF
 
 forge run new-feature --instruction dark-mode.md
+
+# Or just run the generated test blueprint directly
+forge run test
 ```
 
 When you use `--task`, forge creates a uniquely named instruction file (e.g. `add-dark-mode.2026-03-31T1325.codex.md`) in `.forge/instructions/`, passes the path to the blueprint as `{instruction_path}`, runs the gates, and for branching blueprints runs a non-blocking `docs-check` step before PR creation. By default `forge run` also starts a local dashboard on port `8400` and increments to the next free port when needed; use `--no-dashboard` to disable it or `--port` to choose a starting port. If a gate fails, the agent retries.

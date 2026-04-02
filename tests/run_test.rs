@@ -1,3 +1,4 @@
+use forge::commands::init::{InitOptions, init_project};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -175,6 +176,35 @@ command = "false"
     assert_eq!(files.len(), 1);
     assert!(files[0].starts_with("do-not-archive-me."));
     assert!(archive_file_names(dir.path().join(".forge/archive").as_path()).is_empty());
+}
+
+#[test]
+fn generated_test_blueprint_runs_without_instruction_input() {
+    let dir = tempdir().expect("tempdir");
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    )
+    .expect("write cargo");
+    init_project(
+        dir.path(),
+        &InitOptions {
+            project_type: None,
+            force: false,
+        },
+    )
+    .expect("init project");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_forge"))
+        .args(["run", "test", "--no-dashboard", "--dry-run", "--verbose"])
+        .current_dir(dir.path())
+        .output()
+        .expect("run forge test");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("[Deterministic] test -> Succeeded (0)"));
+    assert!(stdout.contains("cargo test"));
 }
 
 fn write_run_fixture(root: &Path, auto_archive: bool, blueprint: &str) {

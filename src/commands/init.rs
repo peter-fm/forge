@@ -53,6 +53,13 @@ pub fn write_generated_files(
         &render_pr_review_blueprint(detected),
         force,
     )?;
+    if detected.commands.test.is_some() {
+        write_generated_file(
+            &root.join(".forge/blueprints/test.toml"),
+            &render_test_blueprint(detected),
+            force,
+        )?;
+    }
 
     let config = crate::config::load_forge_config_str(&render_config(detected))?;
     ensure_workspace_layout(root, &config)?;
@@ -230,6 +237,27 @@ pub fn render_pr_review_blueprint(detected: &DetectedProject) -> String {
         )
     ));
     output.push_str("allow_failure = true\n");
+    output
+}
+
+pub fn render_test_blueprint(detected: &DetectedProject) -> String {
+    let mut output = String::from(GENERATED_HEADER);
+    output.push_str("[blueprint]\n");
+    output.push_str("name = \"test\"\n");
+    output.push_str("description = \"Run the project's test command\"\n\n");
+    output.push_str("[[step]]\n");
+    output.push_str("type = \"deterministic\"\n");
+    output.push_str("name = \"test\"\n");
+    output.push_str(&format!(
+        "command = \"{}\"\n",
+        escape_toml(
+            detected
+                .commands
+                .test
+                .as_deref()
+                .unwrap_or("{test_command}")
+        )
+    ));
     output
 }
 
