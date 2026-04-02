@@ -1,7 +1,7 @@
 use forge::config::ForgeConfig;
 use forge::workspace::{
-    archive_instruction_file, build_instruction_file_name, clean_workspace, create_instruction_file,
-    list_instruction_files, resolve_instruction_file, CleanOptions, InstructionFile,
+    CleanOptions, InstructionFile, archive_instruction_file, build_instruction_file_name,
+    clean_workspace, create_instruction_file, list_instruction_files, resolve_instruction_file,
 };
 use std::fs;
 use std::path::Path;
@@ -27,12 +27,10 @@ fn create_instruction_file_makes_unique_names_for_same_task() {
     let dir = tempdir().expect("tempdir");
     let config = ForgeConfig::default();
 
-    let first =
-        create_instruction_file(dir.path(), &config, "Add websocket support", "codex")
-            .expect("create first instruction");
-    let second =
-        create_instruction_file(dir.path(), &config, "Add websocket support", "codex")
-            .expect("create second instruction");
+    let first = create_instruction_file(dir.path(), &config, "Add websocket support", "codex")
+        .expect("create first instruction");
+    let second = create_instruction_file(dir.path(), &config, "Add websocket support", "codex")
+        .expect("create second instruction");
 
     assert_ne!(first.file_name, second.file_name);
     assert!(first.file_name.ends_with(".codex.md"));
@@ -149,13 +147,23 @@ fn forge_clean_archive_moves_all_instruction_files() {
         .expect("run forge clean --archive");
 
     assert!(output.status.success());
-    assert!(list_instruction_files(dir.path(), &ForgeConfig::default())
-        .expect("list instruction files")
-        .is_empty());
+    assert!(
+        list_instruction_files(dir.path(), &ForgeConfig::default())
+            .expect("list instruction files")
+            .is_empty()
+    );
     let archived = archive_file_names(dir.path().join(".forge/archive").as_path());
     assert_eq!(archived.len(), 2);
-    assert!(archived.iter().any(|name| name.starts_with("one.archived-")));
-    assert!(archived.iter().any(|name| name.starts_with("two.archived-")));
+    assert!(
+        archived
+            .iter()
+            .any(|name| name.starts_with("one.archived-"))
+    );
+    assert!(
+        archived
+            .iter()
+            .any(|name| name.starts_with("two.archived-"))
+    );
 }
 
 #[test]

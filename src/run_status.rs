@@ -107,11 +107,7 @@ pub fn snapshot_path(root: &Path, run_id: &str) -> PathBuf {
     root.join(".forge/runs").join(format!("{run_id}.json"))
 }
 
-fn status_step(
-    name: &str,
-    context: &RunContext,
-    current_step: Option<&str>,
-) -> StatusStep {
+fn status_step(name: &str, context: &RunContext, current_step: Option<&str>) -> StatusStep {
     if let Some(result) = context.step_results.get(name) {
         return status_step_from_result(name, result, context);
     }
@@ -137,11 +133,7 @@ fn status_step(
     }
 }
 
-fn status_step_from_result(
-    name: &str,
-    result: &StepResult,
-    context: &RunContext,
-) -> StatusStep {
+fn status_step_from_result(name: &str, result: &StepResult, context: &RunContext) -> StatusStep {
     let started_at = context
         .step_started_at
         .get(name)
@@ -151,9 +143,9 @@ fn status_step_from_result(
         result.status,
         StepStatus::Succeeded | StepStatus::Failed | StepStatus::Skipped
     )
-        .then(|| iso_timestamp(None))
-        .transpose()
-        .unwrap_or(None);
+    .then(|| iso_timestamp(None))
+    .transpose()
+    .unwrap_or(None);
 
     StatusStep {
         name: name.to_string(),

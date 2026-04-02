@@ -2,7 +2,11 @@ use crate::error::ForgeError;
 use crate::run_status::{list_snapshots, read_snapshot, snapshot_path};
 use std::path::Path;
 
-pub fn print_status(root: &Path, run_id: Option<&str>, include_completed: bool) -> Result<(), ForgeError> {
+pub fn print_status(
+    root: &Path,
+    run_id: Option<&str>,
+    include_completed: bool,
+) -> Result<(), ForgeError> {
     if let Some(run_id) = run_id {
         let path = snapshot_path(root, run_id);
         if !path.exists() {
@@ -46,7 +50,10 @@ fn print_snapshot(snapshot: &crate::run_status::RunStatusSnapshot) -> Result<(),
         println!("current step: {current_step}");
     }
     for step in &snapshot.steps {
-        println!("{}: {} (attempts: {})", step.name, step.status, step.attempts);
+        println!(
+            "{}: {} (attempts: {})",
+            step.name, step.status, step.attempts
+        );
     }
     Ok(())
 }

@@ -3,20 +3,9 @@ use crate::error::ForgeError;
 use crate::workspace::{CleanOptions, clean_workspace};
 use std::path::Path;
 
-pub fn clean_command(
-    root: &Path,
-    archive: bool,
-    dry_run: bool,
-) -> Result<(), ForgeError> {
+pub fn clean_command(root: &Path, archive: bool, dry_run: bool) -> Result<(), ForgeError> {
     let config = load_config(root)?;
-    let report = clean_workspace(
-        root,
-        &config,
-        &CleanOptions {
-            archive,
-            dry_run,
-        },
-    )?;
+    let report = clean_workspace(root, &config, &CleanOptions { archive, dry_run })?;
 
     if archive {
         let verb = if dry_run { "would archive" } else { "archived" };
