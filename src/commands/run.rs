@@ -2,6 +2,7 @@ use crate::cli::Commands;
 use crate::config::{
     build_run_variables, load_forge_config, load_forge_config_if_exists, resolve_blueprint_for_run,
 };
+use crate::dashboard::launch_dashboard;
 use crate::dispatch::ProcessRuntime;
 use crate::error::ForgeError;
 use crate::logger::{JsonlRunLogger, RunEnd, RunLogger, RunMeta};
@@ -31,6 +32,8 @@ pub fn run_command(root: &Path, command: &Commands) -> Result<(), ForgeError> {
         task,
         instruction,
         dry_run,
+        no_dashboard,
+        port,
         notify,
         verbose,
         ..
@@ -45,7 +48,13 @@ pub fn run_command(root: &Path, command: &Commands) -> Result<(), ForgeError> {
     let blueprint_path =
         resolve_run_blueprint_path(&blueprint_root, blueprint_name, blueprint, repo)?;
     let blueprint = parse_blueprint_file(&blueprint_path)?;
-    let instruction = resolve_run_instruction(root, &config, task.as_deref(), instruction.as_deref(), command)?;
+    let instruction = resolve_run_instruction(
+        root,
+        &config,
+        task.as_deref(),
+        instruction.as_deref(),
+        command,
+    )?;
 
     let mut context = RunContext::new();
     context.variables = build_run_variables(&config, command, root, &date)?;
@@ -53,9 +62,10 @@ pub fn run_command(root: &Path, command: &Commands) -> Result<(), ForgeError> {
     context.verbose = *verbose;
     context.instruction_file = instruction.as_ref().map(|file| file.file_name.clone());
     if let Some(instruction) = &instruction {
-        context
-            .variables
-            .insert("instruction_file".to_string(), instruction.file_name.clone());
+        context.variables.insert(
+            "instruction_file".to_string(),
+            instruction.file_name.clone(),
+        );
         context.variables.insert(
             "instruction_path".to_string(),
             instruction.path_display.clone(),
@@ -86,9 +96,27 @@ pub fn run_command(root: &Path, command: &Commands) -> Result<(), ForgeError> {
         runtime: ProcessRuntime,
         logger,
         blueprint_root,
+        dashboard: None,
     };
+    let mut dashboard = if *no_dashboard {
+        None
+    } else {
+        Some(launch_dashboard(&blueprint, *port)?)
+    };
+    engine.dashboard = dashboard.as_ref().map(|server| server.observer.clone());
 
     let run_result = engine.run_blueprint(&blueprint, &mut context);
+    if let Some(server) = &dashboard {
+        server.observer.complete_run(if run_result.is_ok() {
+            "success"
+        } else {
+            "failure"
+        });
+        eprintln!(
+            "Dashboard available for 60s at http://localhost:{}",
+            server.port
+        );
+    }
     let summary = match &run_result {
         Ok(summary) => summary.clone(),
         Err(_) => build_failure_summary(&blueprint, &context),
@@ -159,6 +187,10 @@ pub fn run_command(root: &Path, command: &Commands) -> Result<(), ForgeError> {
         }
     }
 
+    if let Some(server) = dashboard.take() {
+        server.wait()?;
+    }
+
     run_result.map(|_| ())
 }
 
@@ -208,9 +240,14 @@ fn today_string() -> Result<String, ForgeError> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-fn resolve_target_agent<'a>(config: &'a crate::config::ForgeConfig, command: &'a Commands) -> &'a str {
+fn resolve_target_agent<'a>(
+    config: &'a crate::config::ForgeConfig,
+    command: &'a Commands,
+) -> &'a str {
     match command {
-        Commands::Run { agent: Some(agent), .. } => agent,
+        Commands::Run {
+            agent: Some(agent), ..
+        } => agent,
         _ => config.defaults.agent.as_deref().unwrap_or("codex"),
     }
 }

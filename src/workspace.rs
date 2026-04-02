@@ -121,7 +121,11 @@ pub fn archive_instruction_file(
     }
 
     fs::create_dir_all(archive_dir(root, config))?;
-    let archived_name = archive_name(&instruction.file_name, suffix_kind, &local_timestamp("%H%M")?);
+    let archived_name = archive_name(
+        &instruction.file_name,
+        suffix_kind,
+        &local_timestamp("%H%M")?,
+    );
     let destination = archive_dir(root, config).join(archived_name);
     fs::rename(source, &destination)?;
     Ok(Some(destination))
@@ -130,7 +134,7 @@ pub fn archive_instruction_file(
 pub fn list_instruction_files(
     root: &Path,
     config: &ForgeConfig,
- ) -> Result<Vec<InstructionFile>, ForgeError> {
+) -> Result<Vec<InstructionFile>, ForgeError> {
     let mut files = Vec::new();
     for entry in fs::read_dir(instructions_dir(root, config))? {
         let entry = entry?;
@@ -309,11 +313,17 @@ fn next_instruction_file_name(
         }
     }
 
-    Err(ForgeError::message("unable to allocate instruction file name"))
+    Err(ForgeError::message(
+        "unable to allocate instruction file name",
+    ))
 }
 
 fn instruction_path_display(config: &ForgeConfig, file_name: &str) -> String {
-    format!(".forge/{}/{}", config.workspace_instructions_dir(), file_name)
+    format!(
+        ".forge/{}/{}",
+        config.workspace_instructions_dir(),
+        file_name
+    )
 }
 
 fn instruction_path_display_for_path(root: &Path, path: &Path) -> String {

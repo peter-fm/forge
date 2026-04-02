@@ -1,0 +1,72 @@
+# forge-generated
+[blueprint]
+name = "pr-review"
+description = "Senior engineer review of a PR — review implementation, merge to main, run final tests"
+
+[[step]]
+type = "agentic"
+name = "review"
+agent = "codex"
+model = "gpt-5.4"
+prompt = """You are a senior engineer reviewing PR #{pr}.
+
+1. Read the PR description:
+   gh pr view {pr} --json title,body,additions,deletions,changedFiles
+
+2. Check out the branch and read the full diff:
+   gh pr checkout {pr}
+   git diff main...HEAD
+
+3. Review the implementation from the standpoint of the system as a whole:
+   - Does the design make sense in the context of the broader codebase?
+   - Are there architectural concerns, coupling issues, or missed edge cases?
+   - Is the code consistent with existing patterns and conventions?
+   - Are tests adequate — do they cover the new behaviour and edge cases?
+   - Is there anything the implementing agent missed or got wrong?
+
+4. If you find issues:
+   - Leave review comments via gh pr review {pr} --comment --body \"...\"
+   - Be specific: reference files, lines, and explain why it matters
+   - Distinguish blocking issues from suggestions
+
+5. If the code is good (or after addressing issues):
+   - Approve: gh pr review {pr} --approve --body \"LGTM — <brief summary>\""""
+max_retries = 1
+
+[[step]]
+type = "agentic"
+name = "merge"
+agent = "codex"
+model = "gpt-5.4"
+prompt = """Merge PR #{pr} to main.
+
+1. First, try a clean merge:
+   gh pr merge {pr} --squash --auto
+
+2. If there are merge conflicts:
+   - Check out the PR branch
+   - Merge main into it: git merge main
+   - Resolve conflicts carefully — understand both sides before choosing
+   - Preserve the intent of both the PR and the conflicting changes
+   - Commit the resolution and push
+   - Then merge the PR
+
+3. If conflicts are too complex to resolve safely, do NOT force merge.
+   Instead, report what conflicts exist and stop."""
+max_retries = 1
+
+[[step]]
+type = "deterministic"
+name = "checkout-main"
+command = "git checkout main && git pull"
+
+[[step]]
+type = "deterministic"
+name = "post-merge-test"
+command = "cargo test"
+
+[[step]]
+type = "deterministic"
+name = "post-merge-lint"
+command = "cargo clippy -- -D warnings"
+allow_failure = true

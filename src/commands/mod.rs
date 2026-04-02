@@ -39,10 +39,7 @@ pub fn dispatch(cli: Cli) -> Result<(), ForgeError> {
             println!("regenerated .forge/");
             Ok(())
         }
-        Commands::Clean {
-            archive,
-            dry_run,
-        } => clean::clean_command(&root, archive, dry_run),
+        Commands::Clean { archive, dry_run } => clean::clean_command(&root, archive, dry_run),
         Commands::Run { .. } => run::run_command(&root, &cli.command),
         Commands::Status { run_id, all } => status::print_status(&root, run_id.as_deref(), all),
         Commands::List => list::list_blueprints(&root),

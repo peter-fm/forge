@@ -40,6 +40,10 @@ pub enum Commands {
         branch: Option<String>,
         #[arg(long)]
         dry_run: bool,
+        #[arg(long)]
+        no_dashboard: bool,
+        #[arg(long, default_value_t = 8400)]
+        port: u16,
         #[arg(long, value_delimiter = ',')]
         notify: Vec<String>,
         #[arg(long)]
