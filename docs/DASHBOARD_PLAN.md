@@ -62,16 +62,19 @@ event: plan_approved data: { "feedback": "..." }
 event: run_complete  data: { "status": "success" }
 ```
 
-### Plan Step Type
-New step type alongside deterministic/agentic/gate/conditional/blueprint:
+### Plan Step — Default Behaviour
 
-```toml
-[[step]]
-type = "plan"
-name = "explore-and-plan"
-agent = "claude-code"
-model = "claude-sonnet-4-20250514"
-prompt = """
+**Planning is on by default.** Forge automatically injects a plan step before the first agentic step in any blueprint. The user opts out with `--skip-plan`, not in.
+
+```bash
+forge run new-feature --task "Add WebSocket support"            # default: plan → approve → build
+forge run new-feature --task "Add WebSocket support" --skip-plan  # skip straight to building
+```
+
+This is a runtime injection — forge inserts the plan step automatically. Blueprints stay clean and don't need a `type = "plan"` entry. The injected plan step uses the same agent and model as the first agentic step in the blueprint.
+
+**The injected plan prompt:**
+```
 Explore the codebase. Understand the architecture. Then produce a numbered plan
 for implementing this task: {task}
 
@@ -81,20 +84,32 @@ Your plan must list:
 3. Any risks or unknowns
 4. Suggested test approach
 
-Output your plan in markdown.
-"""
+Output your plan in markdown. Do NOT make any changes — planning only.
 ```
 
 **Execution flow:**
 1. Agent runs in read-only exploration mode (no writes)
 2. Agent's output (the plan) is captured
-3. Plan renders in dashboard
+3. Plan renders in dashboard (or prints to terminal if `--no-dashboard`)
 4. Runner blocks on `tokio::sync::oneshot` channel
-5. User reviews plan in dashboard — three options:
-   - **Approve** — runner continues to next step
-   - **Amend** — user types feedback, plan + feedback injected into next agentic step's prompt as context
+5. User reviews plan — three options:
+   - **Approve** — runner continues to the first real agentic step
+   - **Amend** — user types feedback, plan + feedback injected into the next agentic step's prompt as context
    - **Reject** — runner aborts with message
-6. If no dashboard (e.g. `--no-dashboard` flag), plan prints to terminal and runner prompts on stdin
+6. If no dashboard, plan prints to terminal and runner prompts on stdin (y/n/amend)
+
+**Why default-on:**
+- Safe by default — every task gets human review before code changes
+- No blueprint changes needed — works with all existing blueprints
+- Simpler for users — no need to understand blueprint TOML to get planning
+- `--skip-plan` is a conscious opt-out for trusted/trivial tasks
+
+**Config override:** Can also be set in `.forge/config.toml`:
+```toml
+[plan]
+enabled = true          # default: true
+skip_blueprints = ["pr-review"]  # blueprints that never get a plan step (review is already the plan)
+```
 
 ### Git Diff Integration
 - After each step completes, run `git diff HEAD` in the project root
@@ -131,27 +146,23 @@ Files to create/modify:
 
 Estimated: ~400 lines new code
 
-### Phase 3 — Plan step type + approval flow
-**Scope:** New `plan` step type in the engine, dashboard approval UI, `oneshot` channel blocking, amendment text injection
-**Test:** Add a plan step to a blueprint, run it, approve via dashboard, verify the coding agent receives plan + feedback
+### Phase 3 — Plan step + approval flow
+**Scope:** Runtime plan injection, dashboard approval UI, `oneshot` channel blocking, amendment text injection, `--skip-plan` flag, terminal fallback (stdin y/n/amend)
+**Test:** Run `forge run new-feature --task "..."`, verify plan appears in dashboard, approve it, verify agent receives plan context in the implement step. Also test `--skip-plan` skips the plan step entirely.
 
 Files to create/modify:
-- `src/model.rs` — add `Plan` to `StepType` enum
-- `src/runner.rs` — plan step execution (run agent read-only, capture output, block for approval)
-- `src/dashboard/mod.rs` — POST handlers for approve/reject
+- `src/runner.rs` — plan step injection (before first agentic step), read-only agent execution, capture output, block for approval via oneshot channel
+- `src/cli.rs` — `--skip-plan` flag
+- `src/commands/run.rs` — pass skip_plan to runner, terminal fallback for plan approval when `--no-dashboard`
+- `src/dashboard/mod.rs` — POST handlers for `/api/approve` and `/api/reject`
 - `src/dashboard/html.rs` — plan display panel with approve/amend/reject buttons + text field
 - `src/dispatch.rs` — read-only agent mode for plan exploration (no file writes)
+- `src/config.rs` — `[plan]` config section: `enabled`, `skip_blueprints`
 
 Estimated: ~500 lines new code
 
-### Phase 4 — Polish + blueprint updates
-**Scope:** Update `forge init` generated blueprints to include plan steps. Update warrant blueprints. Tailscale-friendly (bind 0.0.0.0 option). Error handling, timeouts, edge cases.
-
-Files to modify:
-- `src/commands/init.rs` — add plan step to generated new-feature, fix-bug, refactor blueprints
-- `.forge/blueprints/warrant-shell/implement-feature.toml` — add plan step
-- `.forge/blueprints/warrant-shell/fix-bug.toml` — add plan step
-- `.forge/blueprints/warrant-shell/red-team.toml` — add plan step (exploration before attack)
+### Phase 4 — Polish
+**Scope:** Tailscale-friendly (bind 0.0.0.0 option). Error handling, timeouts, edge cases. Config for `skip_blueprints` (e.g. pr-review never gets a plan step).
 
 ## Dogfooding Strategy
 
@@ -176,6 +187,6 @@ serde_json = "1"  # likely already present
 
 1. ~~User feedback on plans~~ → Accept/Amend/Reject with text field. Feedback injected into next agentic prompt.
 2. ~~Diff source~~ → `git diff HEAD` after each step, plain git output.
-3. ~~Plan step opt-in~~ → Explicit step type in blueprints, added to generated defaults.
+3. ~~Plan step opt-in~~ → **Reversed: plan is default-on, opt-out with `--skip-plan`.** Runtime injection, not a blueprint step type. Config: `[plan] enabled = true, skip_blueprints = [...]`.
 4. ~~HTTP framework~~ → Axum.
 5. ~~Parallel runs~~ → Auto-increment port from 8400.
