@@ -2,7 +2,12 @@
 
 ## Overview
 
-Add a live HTML dashboard to `forge run`. Each run spins up an ephemeral HTTP server that shows progress, agent plans, step output, and git diffs. Includes a new `plan` step type where the agent explores the codebase and proposes a plan, then the user approves/amends/rejects via the dashboard before coding begins.
+This document tracks the dashboard roadmap beyond the initial implementation that has already landed.
+
+Current status:
+- Phase 1 is implemented: `forge run` starts a local dashboard server, exposes `GET /`, `GET /api/state`, and `GET /events`, and keeps it alive for 60 seconds after the run finishes.
+- The current HTML page is still a placeholder and the dashboard does not yet include plan approval or git diff views.
+- The remaining sections below describe the intended follow-on phases.
 
 ## Design Principle: One Dashboard, All Blueprints
 
@@ -107,11 +112,11 @@ Output your plan in markdown.
 
 Files to create/modify:
 - `Cargo.toml` — add axum, tokio, serde_json, tokio-stream dependencies
-- `src/dashboard/mod.rs` — DashboardState, server setup, routes
-- `src/dashboard/html.rs` — HTML template rendering (single-file, inline CSS/JS)
-- `src/dashboard/sse.rs` — SSE event stream
-- `src/runner.rs` — spawn server thread, update shared state after each step
-- `src/main.rs` — `--no-dashboard` and `--port` CLI flags
+- `src/dashboard/mod.rs` — DashboardState, placeholder HTML, API routes, and SSE stream
+- `src/runner.rs` — update shared state as root blueprint steps start and finish
+- `src/cli.rs` — `--no-dashboard` and `--port` CLI flags
+- `src/commands/run.rs` — dashboard launch, completion status, and shutdown wait
+- `tests/dashboard_test.rs` — API coverage for the launched dashboard
 
 Estimated: ~600 lines new code
 
