@@ -208,6 +208,7 @@ fn exposes_step_output_variables() {
             stdout: "clippy clean".to_string(),
             stderr: String::new(),
             attempts: 1,
+            log_file: None,
         },
     );
 
@@ -817,6 +818,7 @@ fn step_result(name: &str, status: StepStatus) -> StepResult {
         stdout: String::new(),
         stderr: String::new(),
         attempts: 1,
+        log_file: None,
     }
 }
 
@@ -973,6 +975,7 @@ impl Runtime for MockRuntime {
         step_name: &str,
         command: &str,
         _env: &BTreeMap<String, String>,
+        _log_path: Option<&Path>,
     ) -> Result<ExecutionOutput, ForgeError> {
         let mut state = self.state.borrow_mut();
         state.command_names.push(step_name.to_string());
@@ -990,6 +993,7 @@ impl Runtime for MockRuntime {
         _model: &str,
         prompt: &str,
         _env: &BTreeMap<String, String>,
+        _log_path: Option<&Path>,
     ) -> Result<ExecutionOutput, ForgeError> {
         let mut state = self.state.borrow_mut();
         state.agent_names.push(step_name.to_string());

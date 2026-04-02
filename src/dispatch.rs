@@ -2,8 +2,11 @@ use crate::error::ForgeError;
 use crate::runner::{ExecutionOutput, Runtime};
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
+use std::fs::OpenOptions;
+use std::io::{self, Read, Write};
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -16,8 +19,9 @@ impl Runtime for ProcessRuntime {
         _step_name: &str,
         command: &str,
         env: &BTreeMap<String, String>,
+        log_path: Option<&Path>,
     ) -> Result<ExecutionOutput, ForgeError> {
-        run_shell(command, env)
+        run_shell(command, env, log_path)
     }
 
     fn run_agent(
@@ -27,26 +31,53 @@ impl Runtime for ProcessRuntime {
         model: &str,
         prompt: &str,
         env: &BTreeMap<String, String>,
+        log_path: Option<&Path>,
     ) -> Result<ExecutionOutput, ForgeError> {
         match agent {
-            "claude-code" => run_claude(step_name, model, prompt, env),
-            "codex" => run_codex(step_name, model, prompt, env),
+            "claude-code" => run_claude(step_name, model, prompt, env, log_path),
+            "codex" => run_codex(step_name, model, prompt, env, log_path),
             other => Err(ForgeError::message(format!("unsupported agent `{other}`"))),
         }
     }
 }
 
-fn run_shell(command: &str, env: &BTreeMap<String, String>) -> Result<ExecutionOutput, ForgeError> {
+fn run_shell(
+    command: &str,
+    env: &BTreeMap<String, String>,
+    log_path: Option<&Path>,
+) -> Result<ExecutionOutput, ForgeError> {
     let mut process = Command::new("bash");
-    let output = apply_env(&mut process, env)
+    let mut child = apply_env(&mut process, env)
         .arg("-lc")
         .arg(command)
-        .output()?;
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| ForgeError::message("failed to capture stdout"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| ForgeError::message("failed to capture stderr"))?;
+    let sink = match log_path {
+        Some(path) => Some(Arc::new(Mutex::new(
+            OpenOptions::new().create(true).append(true).open(path)?,
+        ))),
+        None => None,
+    };
+    let stdout_handle = spawn_reader(stdout, sink.clone());
+    let stderr_handle = spawn_reader(stderr, sink);
+    let status = child.wait()?;
+    let stdout = join_reader(stdout_handle)?;
+    let stderr = join_reader(stderr_handle)?;
 
     Ok(ExecutionOutput {
-        exit_code: output.status.code().unwrap_or(1),
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        exit_code: status.code().unwrap_or(1),
+        stdout: String::from_utf8_lossy(&stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&stderr).into_owned(),
     })
 }
 
@@ -55,6 +86,7 @@ fn run_claude(
     model: &str,
     prompt: &str,
     env: &BTreeMap<String, String>,
+    log_path: Option<&Path>,
 ) -> Result<ExecutionOutput, ForgeError> {
     let repo_path = infer_repo_path(step_name, prompt, env)?;
     let command = format!(
@@ -63,7 +95,7 @@ fn run_claude(
         shell_quote(model),
         shell_quote(prompt)
     );
-    run_shell(&command, env)
+    run_shell(&command, env, log_path)
 }
 
 fn run_codex(
@@ -71,6 +103,7 @@ fn run_codex(
     model: &str,
     prompt: &str,
     env: &BTreeMap<String, String>,
+    log_path: Option<&Path>,
 ) -> Result<ExecutionOutput, ForgeError> {
     let repo_path = infer_repo_path(step_name, prompt, env)?;
     let session_name = format!("forge-{}", sanitize_session_name(step_name));
@@ -79,8 +112,6 @@ fn run_codex(
         .cloned()
         .unwrap_or_else(|| "--yolo".to_string());
 
-    // Write prompt to a temp file and launch via a wrapper script to avoid
-    // shell quoting issues with complex prompts containing quotes/special chars.
     let prompt_file = std::env::temp_dir().join(format!(
         "forge-prompt-{}.md",
         sanitize_session_name(step_name)
@@ -92,11 +123,12 @@ fn run_codex(
     std::fs::write(
         &script_file,
         format!(
-            "#!/bin/bash\ncd {}\nexec codex {} --model {} exec \"$(cat {})\"",
+            "#!/bin/bash\ncd {}\nexec codex {} --model {} exec \"$(cat {})\"{}",
             shell_quote(&repo_path),
             codex_flags,
             shell_quote(model),
             shell_quote(&prompt_file.to_string_lossy()),
+            log_redirect(log_path),
         ),
     )
     .map_err(|err| ForgeError::message(format!("failed to write script file: {err}")))?;
@@ -112,7 +144,7 @@ fn run_codex(
         shell_quote(&session_name),
         shell_quote(&script_file.to_string_lossy()),
     );
-    let start_result = run_shell(&start, env)?;
+    let start_result = run_shell(&start, env, None)?;
     if start_result.exit_code != 0 {
         return Ok(start_result);
     }
@@ -121,6 +153,7 @@ fn run_codex(
         let exists = run_shell(
             &format!("tmux has-session -t {}", shell_quote(&session_name)),
             env,
+            None,
         )?;
         if exists.exit_code != 0 {
             break;
@@ -134,12 +167,55 @@ fn run_codex(
             shell_quote(&repo_path)
         ),
         env,
+        None,
     )?;
     let _ = run_shell(
         &format!("tmux kill-session -t {}", shell_quote(&session_name)),
         env,
+        None,
     );
     Ok(diff)
+}
+
+fn spawn_reader<R>(mut reader: R, sink: Option<Arc<Mutex<std::fs::File>>>) -> thread::JoinHandle<io::Result<Vec<u8>>>
+where
+    R: Read + Send + 'static,
+{
+    thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let mut chunk = [0_u8; 4096];
+
+        loop {
+            let read = reader.read(&mut chunk)?;
+            if read == 0 {
+                break;
+            }
+
+            bytes.extend_from_slice(&chunk[..read]);
+            if let Some(sink) = &sink {
+                let mut sink = sink
+                    .lock()
+                    .map_err(|_| io::Error::other("failed to lock step log"))?;
+                sink.write_all(&chunk[..read])?;
+                sink.flush()?;
+            }
+        }
+
+        Ok(bytes)
+    })
+}
+
+fn join_reader(handle: thread::JoinHandle<io::Result<Vec<u8>>>) -> Result<Vec<u8>, ForgeError> {
+    handle
+        .join()
+        .map_err(|_| ForgeError::message("failed to join process output reader"))?
+        .map_err(ForgeError::from)
+}
+
+fn log_redirect(log_path: Option<&Path>) -> String {
+    log_path
+        .map(|path| format!(" >> {} 2>&1", shell_quote(&path.display().to_string())))
+        .unwrap_or_default()
 }
 
 fn infer_repo_path(

@@ -252,6 +252,14 @@ command = "printf 'ran\\n'"
     assert_eq!(entries[0]["dry_run"], Value::Bool(false));
     assert_eq!(entries[1]["name"], "echo");
     assert_eq!(entries[1]["stdout"], "ran\n");
+    let step_log = entries[1]["log_file"]
+        .as_str()
+        .expect("step log path");
+    assert!(step_log.starts_with(".forge/runs/run-"));
+    assert_eq!(
+        fs::read_to_string(dir.path().join(step_log)).expect("read step log"),
+        "ran\n"
+    );
 }
 
 fn write_run_fixture(root: &Path, auto_archive: bool, blueprint: &str) {
@@ -306,13 +314,29 @@ fn archive_file_names(path: &Path) -> Vec<String> {
 }
 
 fn only_run_log(root: &Path) -> std::path::PathBuf {
-    let mut files = fs::read_dir(root.join(".forge/runs"))
-        .expect("run entries")
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
+    let mut files = walk(root.join(".forge/runs"))
+        .into_iter()
         .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("jsonl"))
         .collect::<Vec<_>>();
     files.sort();
     assert_eq!(files.len(), 1, "expected exactly one run log");
     files.remove(0)
+}
+
+fn walk(root: std::path::PathBuf) -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+    let mut stack = vec![root];
+
+    while let Some(path) = stack.pop() {
+        for entry in fs::read_dir(path).expect("walk entries").filter_map(|entry| entry.ok()) {
+            let entry_path = entry.path();
+            if entry_path.is_dir() {
+                stack.push(entry_path);
+            } else {
+                files.push(entry_path);
+            }
+        }
+    }
+
+    files
 }

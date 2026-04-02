@@ -73,7 +73,7 @@ pub fn run_command(root: &Path, command: &Commands) -> Result<(), ForgeError> {
     }
 
     let runs_dir = root.join(".forge/runs");
-    let mut logger = JsonlRunLogger::new(&runs_dir)?;
+    let mut logger = JsonlRunLogger::new(root, &runs_dir)?;
     let started_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs())

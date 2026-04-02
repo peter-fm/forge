@@ -1,10 +1,11 @@
 use crate::dashboard::{DashboardObserver, StepStatus as DashboardStepStatus};
 use crate::error::ForgeError;
-use crate::logger::RunLogger;
+use crate::logger::{RunLogger, StepLog};
 use crate::model::{Blueprint, RunContext, RunSummary, Step, StepResult, StepStatus, StepType};
 use crate::run_status;
 use crate::{condition, vars};
 use std::collections::BTreeMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -21,6 +22,7 @@ pub trait Runtime {
         step_name: &str,
         command: &str,
         env: &BTreeMap<String, String>,
+        log_path: Option<&Path>,
     ) -> Result<ExecutionOutput, ForgeError>;
 
     fn run_agent(
@@ -30,6 +32,7 @@ pub trait Runtime {
         model: &str,
         prompt: &str,
         env: &BTreeMap<String, String>,
+        log_path: Option<&Path>,
     ) -> Result<ExecutionOutput, ForgeError>;
 }
 
@@ -113,6 +116,7 @@ where
                     stdout: String::new(),
                     stderr: String::new(),
                     attempts: 0,
+                    log_file: self.create_empty_step_log(&step.name)?,
                 };
                 self.record_result(context, &mut summary_steps, result)?;
                 self.write_status_snapshot(blueprint, context, None, "running")?;
@@ -250,6 +254,7 @@ where
         step: &Step,
         context: &mut RunContext,
     ) -> Result<StepResult, ForgeError> {
+        let step_log = self.logger.create_step_log(&step.name)?;
         let env = resolve_env(step, context)?;
         let variables = vars::build_variable_scope(context);
 
@@ -268,11 +273,14 @@ where
                         stdout: command,
                         stderr: String::new(),
                         attempts: 1,
+                        log_file: step_log.as_ref().map(|log| log.relative_path.clone()),
                     };
+                    write_step_log(step_log.as_ref(), &result.stdout, &result.stderr)?;
                     apply_sets(step, &result, context);
                     return Ok(result);
                 }
-                self.runtime.run_command(&step.name, &command, &env)?
+                self.runtime
+                    .run_command(&step.name, &command, &env, step_log_path(&step_log))?
             }
             StepType::Agentic => {
                 let agent = vars::substitute_text(
@@ -302,12 +310,21 @@ where
                         stdout: prompt,
                         stderr: format!("agent={agent} model={model}"),
                         attempts: 1,
+                        log_file: step_log.as_ref().map(|log| log.relative_path.clone()),
                     };
+                    write_step_log(step_log.as_ref(), &result.stdout, &result.stderr)?;
                     apply_sets(step, &result, context);
                     return Ok(result);
                 }
                 self.runtime
-                    .run_agent(&step.name, &agent, &model, &prompt, &env)?
+                    .run_agent(
+                        &step.name,
+                        &agent,
+                        &model,
+                        &prompt,
+                        &env,
+                        step_log_path(&step_log),
+                    )?
             }
             StepType::Blueprint => {
                 return Err(ForgeError::message(format!(
@@ -335,6 +352,7 @@ where
             stdout: execution.stdout,
             stderr: execution.stderr,
             attempts: 1,
+            log_file: step_log.map(|log| log.relative_path),
         };
 
         apply_sets(step, &result, context);
@@ -442,12 +460,13 @@ where
             attempts += 1;
             let mut agent_result = self.run_single_step(step, context)?;
             agent_result.attempts = attempts;
+            self.ensure_step_log(&mut agent_result)?;
             context
                 .step_results
                 .insert(step.name.clone(), agent_result.clone());
 
             if let Some(target) = retry_target {
-                let test_result =
+                let mut test_result =
                     if matches!(target.step_type, StepType::Blueprint | StepType::Gate)
                         && target.blueprint.is_some()
                     {
@@ -465,6 +484,7 @@ where
                         consumed_next = true;
                         self.run_single_step(target, context)?
                     };
+                self.ensure_step_log(&mut test_result)?;
 
                 context.variables.insert(
                     "test_output".to_string(),
@@ -506,8 +526,9 @@ where
         &mut self,
         context: &mut RunContext,
         summary: &mut Vec<StepResult>,
-        result: StepResult,
+        mut result: StepResult,
     ) -> Result<(), ForgeError> {
+        self.ensure_step_log(&mut result)?;
         context
             .step_results
             .insert(result.name.clone(), result.clone());
@@ -540,6 +561,35 @@ where
             state,
         )
     }
+
+    fn create_empty_step_log(&mut self, step_name: &str) -> Result<Option<String>, ForgeError> {
+        let step_log = self.logger.create_step_log(step_name)?;
+        write_step_log(step_log.as_ref(), "", "")?;
+        Ok(step_log.map(|log| log.relative_path))
+    }
+
+    fn ensure_step_log(&mut self, result: &mut StepResult) -> Result<(), ForgeError> {
+        if result.log_file.is_none() {
+            result.log_file = self.create_empty_step_log(&result.name)?;
+        }
+        Ok(())
+    }
+}
+
+fn step_log_path(step_log: &Option<StepLog>) -> Option<&Path> {
+    step_log.as_ref().map(|log| log.path.as_path())
+}
+
+fn write_step_log(step_log: Option<&StepLog>, stdout: &str, stderr: &str) -> Result<(), ForgeError> {
+    let Some(step_log) = step_log else {
+        return Ok(());
+    };
+
+    let mut contents = String::with_capacity(stdout.len() + stderr.len());
+    contents.push_str(stdout);
+    contents.push_str(stderr);
+    fs::write(&step_log.path, contents)?;
+    Ok(())
 }
 
 fn join_step_output(result: &StepResult) -> String {
@@ -682,6 +732,7 @@ fn synthesize_parent_result(step: &Step, child_results: &[StepResult]) -> StepRe
         stdout: String::new(),
         stderr: String::new(),
         attempts: 1,
+        log_file: None,
     }
 }
 

@@ -83,6 +83,8 @@ pub struct StepResult {
     pub stdout: String,
     pub stderr: String,
     pub attempts: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub log_file: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

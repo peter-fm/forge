@@ -28,6 +28,7 @@ fn forge_status_prints_snapshot_summary() {
             stdout: String::new(),
             stderr: String::new(),
             attempts: 1,
+            log_file: None,
         },
     );
     write_snapshot(

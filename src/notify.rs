@@ -79,6 +79,7 @@ pub fn build_partial_summary(step_names: &[String], recorded_steps: &[StepResult
                 stdout: String::new(),
                 stderr: String::new(),
                 attempts: 0,
+                log_file: None,
             });
         }
     }
