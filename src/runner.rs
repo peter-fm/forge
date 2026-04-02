@@ -479,6 +479,8 @@ where
                 }
 
                 if attempts >= max_retries {
+                    self.logger.log_step(&agent_result)?;
+                    self.logger.log_step(&test_result)?;
                     return Err(ForgeError::message(format!(
                         "step `{}` failed after {attempts} attempts",
                         step.name
@@ -491,6 +493,7 @@ where
                 return Ok((agent_result, None, consumed_next));
             }
             if attempts >= max_retries {
+                self.logger.log_step(&agent_result)?;
                 return Err(ForgeError::message(format!(
                     "step `{}` failed after {attempts} attempts",
                     step.name

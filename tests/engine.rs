@@ -27,19 +27,22 @@ fn parses_generated_refactor_blueprint() {
     let blueprint = parse_blueprint_file(path).expect("lint blueprint should parse");
 
     assert_eq!(blueprint.blueprint.name, "refactor");
-    assert!(
-        blueprint
-            .steps
-            .iter()
-            .any(|step| step.step_type == StepType::Agentic)
-    );
-    assert!(
-        blueprint
-            .steps
-            .iter()
-            .filter(|step| step.step_type == StepType::Deterministic)
-            .count()
-            >= 2
+    assert_branching_step_sequence(
+        &blueprint,
+        &[
+            "clean-tree",
+            "create-branch",
+            "refactor",
+            "commit-backstop",
+            "lint",
+            "test",
+            "docs-check",
+            "docs-commit-backstop",
+            "push-branch",
+            "write-pr",
+            "create-pr",
+            "checkout-main",
+        ],
     );
 }
 
@@ -49,17 +52,22 @@ fn parses_generated_new_feature_blueprint() {
     let path = dir.path().join(".forge/blueprints/new-feature.toml");
     let blueprint = parse_blueprint_file(path).expect("new-feature should parse");
 
-    assert!(
-        blueprint
-            .steps
-            .iter()
-            .any(|step| step.step_type == StepType::Deterministic)
-    );
-    assert!(
-        blueprint
-            .steps
-            .iter()
-            .any(|step| step.step_type == StepType::Agentic)
+    assert_branching_step_sequence(
+        &blueprint,
+        &[
+            "clean-tree",
+            "create-branch",
+            "implement",
+            "commit-backstop",
+            "lint",
+            "test",
+            "docs-check",
+            "docs-commit-backstop",
+            "push-branch",
+            "write-pr",
+            "create-pr",
+            "checkout-main",
+        ],
     );
     assert!(
         blueprint
@@ -73,6 +81,45 @@ fn parses_generated_new_feature_blueprint() {
             .steps
             .iter()
             .any(|step| step.name == "docs-check" && step.allow_failure)
+    );
+    assert!(
+        !blueprint.steps[2]
+            .prompt
+            .as_deref()
+            .unwrap_or_default()
+            .contains("Commit your changes")
+    );
+}
+
+#[test]
+fn generated_fix_bug_blueprint_uses_deterministic_branching_skeleton() {
+    let dir = init_generated_project();
+    let path = dir.path().join(".forge/blueprints/fix-bug.toml");
+    let blueprint = parse_blueprint_file(path).expect("fix-bug should parse");
+
+    assert_branching_step_sequence(
+        &blueprint,
+        &[
+            "clean-tree",
+            "create-branch",
+            "fix",
+            "commit-backstop",
+            "lint",
+            "test",
+            "docs-check",
+            "docs-commit-backstop",
+            "push-branch",
+            "write-pr",
+            "create-pr",
+            "checkout-main",
+        ],
+    );
+    assert!(
+        !blueprint.steps[2]
+            .prompt
+            .as_deref()
+            .unwrap_or_default()
+            .contains("Commit your changes")
     );
 }
 
@@ -591,6 +638,12 @@ fn aborts_after_exhausting_retries() {
         .run_blueprint(&blueprint, &mut RunContext::new())
         .expect_err("retries should exhaust");
     assert!(error.to_string().contains("fix-tests"));
+    assert_eq!(engine.logger.entries.len(), 2);
+    assert_eq!(engine.logger.entries[0].name, "fix-tests");
+    assert_eq!(engine.logger.entries[0].status, StepStatus::Succeeded);
+    assert_eq!(engine.logger.entries[0].attempts, 3);
+    assert_eq!(engine.logger.entries[1].name, "test-chain");
+    assert_eq!(engine.logger.entries[1].status, StepStatus::Failed);
 }
 
 #[test]
@@ -765,6 +818,15 @@ fn step_result(name: &str, status: StepStatus) -> StepResult {
         stderr: String::new(),
         attempts: 1,
     }
+}
+
+fn assert_branching_step_sequence(blueprint: &Blueprint, expected: &[&str]) {
+    let actual = blueprint
+        .steps
+        .iter()
+        .map(|step| step.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(actual, expected);
 }
 
 fn blueprint_with_steps(steps: Vec<Step>) -> Blueprint {

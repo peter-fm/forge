@@ -4,12 +4,32 @@ name = "fix-bug"
 description = "Fix a bug with test verification"
 
 [[step]]
+type = "deterministic"
+name = "clean-tree"
+command = "git diff --quiet || exit 1"
+
+[[step]]
+type = "deterministic"
+name = "create-branch"
+command = "git checkout -b {branch}"
+
+[[step]]
 type = "agentic"
 name = "fix"
 agent = "{target_agent}"
 model = "{target_model}"
-prompt = """Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Fix the bug described there. Add a regression test that would have caught this bug. Commit your changes."""
+prompt = """Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Fix the bug described there. Add a regression test that would have caught this bug."""
 max_retries = 3
+
+[[step]]
+type = "deterministic"
+name = "commit-backstop"
+command = "git add -A && git diff --cached --quiet || git commit -m \"{commit_message}\""
+
+[[step]]
+type = "deterministic"
+name = "lint"
+command = "cargo clippy -- -D warnings"
 
 [[step]]
 type = "deterministic"
@@ -32,7 +52,7 @@ prompt = """Review the changes you just made and check if the project documentat
    - Project structure sections that don't reflect new/moved files
 3. Check docs/ directory (if it exists) for any files affected by your changes.
 4. Check AGENTS.md (if it exists) for outdated workflow instructions.
-5. If anything needs updating, make the changes and commit with message \"docs: update documentation to reflect recent changes\".
+5. If anything needs updating, make the changes.
 6. If everything is already accurate, do nothing — don't make changes for the sake of it.
 
 Only update documentation that is genuinely affected by the code changes. Do not rewrite docs that are still correct.
@@ -40,11 +60,21 @@ Only update documentation that is genuinely affected by the code changes. Do not
 allow_failure = true
 
 [[step]]
+type = "deterministic"
+name = "docs-commit-backstop"
+command = "git add -A && git diff --cached --quiet || git commit -m \"docs: update documentation\""
+
+[[step]]
+type = "deterministic"
+name = "push-branch"
+command = "git push origin {branch}"
+
+[[step]]
 type = "agentic"
 name = "write-pr"
 agent = "{target_agent}"
 model = "{target_model}"
-prompt = """You have just completed work on this branch. Now write up a pull request.
+prompt = """You have just completed work on this branch. Now write up a pull request description.
 
 1. Run `git diff main...HEAD` to see everything you changed.
 2. Read the original task instructions at {instruction_path}.
@@ -53,9 +83,16 @@ prompt = """You have just completed work on this branch. Now write up a pull req
    - How you solved it (architectural decisions, key changes)
    - What changed (files modified, new files, removed files)
    - How to verify (what tests cover this, how to manually check)
-4. Open the PR: `gh pr create --base main --title \"<concise title>\" --body \"<your description>\"`"""
+4. Save the PR description to `.forge/pr-body.md`.
+
+Do not create the PR yourself. Only write the contents for `.forge/pr-body.md`."""
 
 [[step]]
 type = "deterministic"
-name = "verify-pr"
-command = "gh pr view --json number,title,url --jq '.url'"
+name = "create-pr"
+command = "gh pr create --base main --head {branch} --body-file .forge/pr-body.md --title \"{commit_message}\""
+
+[[step]]
+type = "deterministic"
+name = "checkout-main"
+command = "git checkout main"

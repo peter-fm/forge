@@ -99,89 +99,124 @@ pub fn render_config(detected: &DetectedProject) -> String {
 }
 
 pub fn render_new_feature_blueprint(detected: &DetectedProject) -> String {
-    let mut output = String::from(GENERATED_HEADER);
-    output.push_str("[blueprint]\n");
-    output.push_str("name = \"new-feature\"\n");
-    output.push_str("description = \"Implement a new feature with lint and test gates\"\n\n");
-    output.push_str("[[step]]\n");
-    output.push_str("type = \"agentic\"\n");
-    output.push_str("name = \"implement\"\n");
-    output.push_str("agent = \"{target_agent}\"\n");
-    output.push_str("model = \"{target_model}\"\n");
-    output.push_str("prompt = \"\"\"Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Implement the feature described there. Make sure to add tests for new functionality. Commit your changes.\"\"\"\n");
-    output.push_str("max_retries = 2\n\n");
-    if let Some(command) = &detected.commands.lint {
-        output.push_str("[[step]]\n");
-        output.push_str("type = \"deterministic\"\n");
-        output.push_str("name = \"lint\"\n");
-        output.push_str(&format!("command = \"{}\"\n\n", escape_toml(command)));
-    }
-    if let Some(command) = &detected.commands.test {
-        output.push_str("[[step]]\n");
-        output.push_str("type = \"deterministic\"\n");
-        output.push_str("name = \"test\"\n");
-        output.push_str(&format!("command = \"{}\"\n\n", escape_toml(command)));
-    }
-    append_docs_check_step(&mut output);
-    append_write_pr_steps(&mut output);
-    output
+    render_branching_blueprint(
+        detected,
+        "new-feature",
+        "Implement a new feature with lint and test gates",
+        "implement",
+        "Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Implement the feature described there. Make sure to add tests for new functionality.",
+        Some(2),
+    )
 }
 
 pub fn render_fix_bug_blueprint(detected: &DetectedProject) -> String {
-    let mut output = String::from(GENERATED_HEADER);
-    output.push_str("[blueprint]\n");
-    output.push_str("name = \"fix-bug\"\n");
-    output.push_str("description = \"Fix a bug with test verification\"\n\n");
-    output.push_str("[[step]]\n");
-    output.push_str("type = \"agentic\"\n");
-    output.push_str("name = \"fix\"\n");
-    output.push_str("agent = \"{target_agent}\"\n");
-    output.push_str("model = \"{target_model}\"\n");
-    output.push_str("prompt = \"\"\"Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Fix the bug described there. Add a regression test that would have caught this bug. Commit your changes.\"\"\"\n");
-    output.push_str("max_retries = 3\n\n");
-    if let Some(command) = &detected.commands.test {
-        output.push_str("[[step]]\n");
-        output.push_str("type = \"deterministic\"\n");
-        output.push_str("name = \"test\"\n");
-        output.push_str(&format!("command = \"{}\"\n\n", escape_toml(command)));
-    }
-    append_docs_check_step(&mut output);
-    append_write_pr_steps(&mut output);
-    output
+    render_branching_blueprint(
+        detected,
+        "fix-bug",
+        "Fix a bug with test verification",
+        "fix",
+        "Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Fix the bug described there. Add a regression test that would have caught this bug.",
+        Some(3),
+    )
 }
 
 pub fn render_refactor_blueprint(detected: &DetectedProject) -> String {
+    render_branching_blueprint(
+        detected,
+        "refactor",
+        "Refactor code with verification gates",
+        "refactor",
+        "Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Refactor the code described there without changing intended behavior.",
+        None,
+    )
+}
+
+fn render_branching_blueprint(
+    detected: &DetectedProject,
+    name: &str,
+    description: &str,
+    creative_step_name: &str,
+    creative_prompt: &str,
+    max_retries: Option<u32>,
+) -> String {
     let mut output = String::from(GENERATED_HEADER);
     output.push_str("[blueprint]\n");
-    output.push_str("name = \"refactor\"\n");
-    output.push_str("description = \"Refactor code with verification gates\"\n\n");
+    output.push_str(&format!("name = \"{}\"\n", escape_toml(name)));
+    output.push_str(&format!(
+        "description = \"{}\"\n\n",
+        escape_toml(description)
+    ));
+
+    append_command_step(
+        &mut output,
+        "clean-tree",
+        "git diff --quiet || exit 1",
+        false,
+    );
+    append_command_step(
+        &mut output,
+        "create-branch",
+        "git checkout -b {branch}",
+        false,
+    );
     output.push_str("[[step]]\n");
     output.push_str("type = \"agentic\"\n");
-    output.push_str("name = \"refactor\"\n");
+    output.push_str(&format!("name = \"{}\"\n", escape_toml(creative_step_name)));
     output.push_str("agent = \"{target_agent}\"\n");
     output.push_str("model = \"{target_model}\"\n");
-    output.push_str("prompt = \"\"\"Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Refactor the code described there without changing intended behavior. Commit your changes once verification passes.\"\"\"\n");
+    output.push_str(&format!("prompt = \"\"\"{}\"\"\"\n", creative_prompt));
+    if let Some(max_retries) = max_retries {
+        output.push_str(&format!("max_retries = {max_retries}\n"));
+    }
     output.push('\n');
-    if let Some(command) = &detected.commands.lint {
-        output.push_str("[[step]]\n");
-        output.push_str("type = \"deterministic\"\n");
-        output.push_str("name = \"lint\"\n");
-        output.push_str(&format!("command = \"{}\"\n\n", escape_toml(command)));
-    }
-    if let Some(command) = &detected.commands.test {
-        output.push_str("[[step]]\n");
-        output.push_str("type = \"deterministic\"\n");
-        output.push_str("name = \"test\"\n");
-        output.push_str(&format!("command = \"{}\"\n\n", escape_toml(command)));
-    }
-    if let Some(command) = &detected.commands.build {
-        output.push_str("[[step]]\n");
-        output.push_str("type = \"deterministic\"\n");
-        output.push_str("name = \"build\"\n");
-        output.push_str(&format!("command = \"{}\"\n\n", escape_toml(command)));
-    }
+
+    append_command_step(
+        &mut output,
+        "commit-backstop",
+        "git add -A && git diff --cached --quiet || git commit -m \"{commit_message}\"",
+        false,
+    );
+    append_command_step(
+        &mut output,
+        "lint",
+        detected
+            .commands
+            .lint
+            .as_deref()
+            .unwrap_or("{lint_command}"),
+        false,
+    );
+    append_command_step(
+        &mut output,
+        "test",
+        detected
+            .commands
+            .test
+            .as_deref()
+            .unwrap_or("{test_command}"),
+        false,
+    );
     append_docs_check_step(&mut output);
+    append_command_step(
+        &mut output,
+        "docs-commit-backstop",
+        "git add -A && git diff --cached --quiet || git commit -m \"docs: update documentation\"",
+        false,
+    );
+    append_command_step(
+        &mut output,
+        "push-branch",
+        "git push origin {branch}",
+        false,
+    );
     append_write_pr_steps(&mut output);
+    append_command_step(
+        &mut output,
+        "create-pr",
+        "gh pr create --base main --head {branch} --body-file .forge/pr-body.md --title \"{commit_message}\"",
+        false,
+    );
+    append_command_step(&mut output, "checkout-main", "git checkout main", false);
     output
 }
 
@@ -267,11 +302,7 @@ fn append_write_pr_steps(output: &mut String) {
     output.push_str("name = \"write-pr\"\n");
     output.push_str("agent = \"{target_agent}\"\n");
     output.push_str("model = \"{target_model}\"\n");
-    output.push_str("prompt = \"\"\"You have just completed work on this branch. Now write up a pull request.\n\n1. Run `git diff main...HEAD` to see everything you changed.\n2. Read the original task instructions at {instruction_path}.\n3. Write a PR description covering:\n   - What problem this solves (from the task brief)\n   - How you solved it (architectural decisions, key changes)\n   - What changed (files modified, new files, removed files)\n   - How to verify (what tests cover this, how to manually check)\n4. Open the PR: `gh pr create --base main --title \\\"<concise title>\\\" --body \\\"<your description>\\\"`\"\"\"\n\n");
-    output.push_str("[[step]]\n");
-    output.push_str("type = \"deterministic\"\n");
-    output.push_str("name = \"verify-pr\"\n");
-    output.push_str("command = \"gh pr view --json number,title,url --jq '.url'\"\n");
+    output.push_str("prompt = \"\"\"You have just completed work on this branch. Now write up a pull request description.\n\n1. Run `git diff main...HEAD` to see everything you changed.\n2. Read the original task instructions at {instruction_path}.\n3. Write a PR description covering:\n   - What problem this solves (from the task brief)\n   - How you solved it (architectural decisions, key changes)\n   - What changed (files modified, new files, removed files)\n   - How to verify (what tests cover this, how to manually check)\n4. Save the PR description to `.forge/pr-body.md`.\n\nDo not create the PR yourself. Only write the contents for `.forge/pr-body.md`.\"\"\"\n\n");
 }
 
 fn append_docs_check_step(output: &mut String) {
@@ -280,8 +311,19 @@ fn append_docs_check_step(output: &mut String) {
     output.push_str("name = \"docs-check\"\n");
     output.push_str("agent = \"{target_agent}\"\n");
     output.push_str("model = \"{target_model}\"\n");
-    output.push_str("prompt = \"\"\"Review the changes you just made and check if the project documentation needs updating.\n\n1. Run `git diff main...HEAD --name-only` to see what files changed.\n2. Read README.md (if it exists) and check if any of these are now outdated:\n   - Feature descriptions that no longer match the code\n   - CLI usage examples that have changed\n   - Installation instructions that need updating\n   - Configuration options that were added or removed\n   - Project structure sections that don't reflect new/moved files\n3. Check docs/ directory (if it exists) for any files affected by your changes.\n4. Check AGENTS.md (if it exists) for outdated workflow instructions.\n5. If anything needs updating, make the changes and commit with message \\\"docs: update documentation to reflect recent changes\\\".\n6. If everything is already accurate, do nothing — don't make changes for the sake of it.\n\nOnly update documentation that is genuinely affected by the code changes. Do not rewrite docs that are still correct.\n\"\"\"\n");
+    output.push_str("prompt = \"\"\"Review the changes you just made and check if the project documentation needs updating.\n\n1. Run `git diff main...HEAD --name-only` to see what files changed.\n2. Read README.md (if it exists) and check if any of these are now outdated:\n   - Feature descriptions that no longer match the code\n   - CLI usage examples that have changed\n   - Installation instructions that need updating\n   - Configuration options that were added or removed\n   - Project structure sections that don't reflect new/moved files\n3. Check docs/ directory (if it exists) for any files affected by your changes.\n4. Check AGENTS.md (if it exists) for outdated workflow instructions.\n5. If anything needs updating, make the changes.\n6. If everything is already accurate, do nothing — don't make changes for the sake of it.\n\nOnly update documentation that is genuinely affected by the code changes. Do not rewrite docs that are still correct.\n\"\"\"\n");
     output.push_str("allow_failure = true\n\n");
+}
+
+fn append_command_step(output: &mut String, name: &str, command: &str, allow_failure: bool) {
+    output.push_str("[[step]]\n");
+    output.push_str("type = \"deterministic\"\n");
+    output.push_str(&format!("name = \"{}\"\n", escape_toml(name)));
+    output.push_str(&format!("command = \"{}\"\n", escape_toml(command)));
+    if allow_failure {
+        output.push_str("allow_failure = true\n");
+    }
+    output.push('\n');
 }
 
 pub fn ensure_instructions_gitignore(root: &Path) -> Result<(), ForgeError> {

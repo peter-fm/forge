@@ -189,7 +189,9 @@ fn repo_root_for_path(path: &str, pwd: Option<&str>) -> Option<String> {
             .file_name()
             .is_some_and(|name| name == OsStr::new(".forge"))
         {
-            return candidate.parent().map(|parent| parent.display().to_string());
+            return candidate
+                .parent()
+                .map(|parent| parent.display().to_string());
         }
 
         if candidate.join(".forge").is_dir() || candidate.join(".git").exists() {

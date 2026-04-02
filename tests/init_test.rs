@@ -58,7 +58,9 @@ fn init_creates_forge_layout_and_gitignore_entries() {
     assert!(blueprint.contains("git diff main...HEAD --name-only"));
     assert!(blueprint.contains("allow_failure = true"));
     assert!(blueprint.contains("name = \"write-pr\""));
-    assert!(blueprint.contains("name = \"verify-pr\""));
+    assert!(blueprint.contains("name = \"create-pr\""));
+    assert!(blueprint.contains("name = \"checkout-main\""));
+    assert!(blueprint.contains(".forge/pr-body.md"));
     assert!(!blueprint.contains("{run_id}"));
 
     let pr_review = fs::read_to_string(dir.path().join(".forge/blueprints/pr-review.toml"))
