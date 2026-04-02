@@ -1,4 +1,5 @@
 use forge::commands::init::{InitOptions, init_project};
+use serde_json::Value;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -207,6 +208,52 @@ fn generated_test_blueprint_runs_without_instruction_input() {
     assert!(stdout.contains("cargo test"));
 }
 
+#[test]
+fn run_without_dry_run_logs_false_and_executes_steps() {
+    let dir = tempdir().expect("tempdir");
+    write_run_fixture(
+        dir.path(),
+        false,
+        r#"
+[blueprint]
+name = "demo"
+description = "x"
+
+[[step]]
+type = "deterministic"
+name = "echo"
+command = "printf 'ran\\n'"
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_forge"))
+        .args([
+            "run",
+            "--blueprint",
+            ".forge/blueprints/demo.toml",
+            "--task",
+            "Execute for real",
+            "--no-dashboard",
+        ])
+        .current_dir(dir.path())
+        .output()
+        .expect("run forge");
+
+    assert!(output.status.success(), "{output:?}");
+
+    let log_path = only_run_log(dir.path());
+    let log = fs::read_to_string(log_path).expect("read run log");
+    let entries = log
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).expect("jsonl entry"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(entries[0]["type"], "run_start");
+    assert_eq!(entries[0]["dry_run"], Value::Bool(false));
+    assert_eq!(entries[1]["name"], "echo");
+    assert_eq!(entries[1]["stdout"], "ran\n");
+}
+
 fn write_run_fixture(root: &Path, auto_archive: bool, blueprint: &str) {
     fs::create_dir_all(root.join(".forge/blueprints")).expect("blueprints");
     fs::write(
@@ -256,4 +303,16 @@ fn archive_file_names(path: &Path) -> Vec<String> {
     };
     files.sort();
     files
+}
+
+fn only_run_log(root: &Path) -> std::path::PathBuf {
+    let mut files = fs::read_dir(root.join(".forge/runs"))
+        .expect("run entries")
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("jsonl"))
+        .collect::<Vec<_>>();
+    files.sort();
+    assert_eq!(files.len(), 1, "expected exactly one run log");
+    files.remove(0)
 }
