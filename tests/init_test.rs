@@ -32,9 +32,21 @@ fn init_creates_forge_layout_and_gitignore_entries() {
     assert!(dir.path().join(".forge/blueprints/fix-bug.toml").exists());
     assert!(dir.path().join(".forge/blueprints/refactor.toml").exists());
     assert!(dir.path().join(".forge/blueprints/pr-review.toml").exists());
-    assert!(dir.path().join(".forge/blueprints/code-review.toml").exists());
-    assert!(dir.path().join(".forge/blueprints/refactor-phase.toml").exists());
-    assert!(dir.path().join(".forge/blueprints/refactor-finalize.toml").exists());
+    assert!(
+        dir.path()
+            .join(".forge/blueprints/code-review.toml")
+            .exists()
+    );
+    assert!(
+        dir.path()
+            .join(".forge/blueprints/refactor-phase.toml")
+            .exists()
+    );
+    assert!(
+        dir.path()
+            .join(".forge/blueprints/refactor-finalize.toml")
+            .exists()
+    );
     assert!(dir.path().join(".forge/blueprints/test.toml").exists());
     assert!(dir.path().join(".forge/instructions/.gitkeep").exists());
     assert!(dir.path().join(".forge/archive").exists());

@@ -80,10 +80,8 @@ fn parses_generated_new_feature_blueprint() {
             .any(|step| step.max_retries == Some(2))
     );
     assert!(
-        blueprint
-            .steps
-            .iter()
-            .any(|step| step.name == "fix-lint" && step.condition.as_deref() == Some("lint.exit_code != 0"))
+        blueprint.steps.iter().any(|step| step.name == "fix-lint"
+            && step.condition.as_deref() == Some("lint.exit_code != 0"))
     );
     assert!(blueprint.steps.iter().any(|step| step.name == "docs-check"));
     assert!(
@@ -163,10 +161,8 @@ fn parses_generated_refactor_phase_blueprint() {
         ],
     );
     assert!(
-        blueprint
-            .steps
-            .iter()
-            .any(|step| step.name == "fix-tests" && step.condition.as_deref() == Some("test.exit_code != 0"))
+        blueprint.steps.iter().any(|step| step.name == "fix-tests"
+            && step.condition.as_deref() == Some("test.exit_code != 0"))
     );
 }
 

@@ -179,6 +179,9 @@ command = "false"
         .expect("run forge");
 
     assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("▶ fail ..."));
+    assert!(stderr.contains("✗ fail (exit 1, "));
     let files = instruction_file_names(dir.path().join(".forge/instructions").as_path());
     assert_eq!(files.len(), 1);
     assert!(files[0].starts_with("do-not-archive-me."));
@@ -288,6 +291,9 @@ command = "printf 'ran\\n'"
         .expect("run forge");
 
     assert!(output.status.success(), "{output:?}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("▶ echo ..."));
+    assert!(stderr.contains("✓ echo ("));
 
     let log_path = only_run_log(dir.path());
     let log = fs::read_to_string(log_path).expect("read run log");

@@ -129,6 +129,7 @@ where
                 .entry(step.name.clone())
                 .or_insert(now_secs()?);
             let started_at = Instant::now();
+            print_step_started(&step.name);
             if is_root {
                 self.start_dashboard_step(index, step);
             }
@@ -138,11 +139,18 @@ where
                 let retry_target = self.determine_retry_target(blueprint, index);
                 let (agent_result, retry_result, consumed_next) =
                     self.run_agentic_with_retries(step, retry_target.as_ref(), context)?;
+                let (overall_status, overall_exit_code) =
+                    agentic_step_outcome(&agent_result, retry_result.as_ref());
+                print_step_finished(
+                    &step.name,
+                    overall_exit_code,
+                    started_at.elapsed().as_secs_f64(),
+                );
                 if is_root {
                     self.finish_dashboard_step(
                         index,
                         step,
-                        dashboard_status(&agent_result.status),
+                        dashboard_status(&overall_status),
                         Some(join_step_output(&agent_result)),
                         Some(started_at.elapsed().as_millis() as u64),
                     );
@@ -151,11 +159,32 @@ where
                 if let Some(target_result) = retry_result {
                     self.record_result(context, &mut summary_steps, target_result)?;
                 }
+                let should_abort = overall_status == StepStatus::Failed && !step.allow_failure;
+                let gate_failed =
+                    step.step_type == StepType::Gate && overall_status == StepStatus::Failed;
                 if consumed_next {
                     self.write_status_snapshot(blueprint, context, None, "running")?;
+                    if gate_failed {
+                        return Err(ForgeError::message(format!(
+                            "gate step `{}` failed",
+                            step.name
+                        )));
+                    }
+                    if should_abort {
+                        return Err(ForgeError::message(format!("step `{}` failed", step.name)));
+                    }
                     index += 2;
                 } else {
                     self.write_status_snapshot(blueprint, context, None, "running")?;
+                    if gate_failed {
+                        return Err(ForgeError::message(format!(
+                            "gate step `{}` failed",
+                            step.name
+                        )));
+                    }
+                    if should_abort {
+                        return Err(ForgeError::message(format!("step `{}` failed", step.name)));
+                    }
                     index += 1;
                 }
                 continue;
@@ -171,6 +200,11 @@ where
                         step.name
                     ))
                 })?;
+                print_step_finished(
+                    &step.name,
+                    step_display_exit_code(&parent_result.status, parent_result.exit_code),
+                    started_at.elapsed().as_secs_f64(),
+                );
                 if is_root {
                     self.finish_dashboard_step(
                         index,
@@ -199,6 +233,11 @@ where
             }
 
             let result = self.run_single_step(step, context)?;
+            print_step_finished(
+                &step.name,
+                step_display_exit_code(&result.status, result.exit_code),
+                started_at.elapsed().as_secs_f64(),
+            );
             if is_root {
                 self.finish_dashboard_step(
                     index,
@@ -413,18 +452,12 @@ where
         Ok(results)
     }
 
-    fn determine_retry_target(
-        &self,
-        blueprint: &Blueprint,
-        index: usize,
-    ) -> Option<RetryTarget> {
+    fn determine_retry_target(&self, blueprint: &Blueprint, index: usize) -> Option<RetryTarget> {
         let step = &blueprint.steps[index];
         if let Some(condition) = &step.condition {
-            for token in
-                condition.split(|ch: char| {
-                    !(ch.is_ascii_alphanumeric() || ch == '-' || ch == '.' || ch == '_')
-                })
-            {
+            for token in condition.split(|ch: char| {
+                !(ch.is_ascii_alphanumeric() || ch == '-' || ch == '.' || ch == '_')
+            }) {
                 if let Some(name) = token.strip_suffix(".exit_code") {
                     if let Some(existing_step) = blueprint
                         .steps
@@ -440,10 +473,14 @@ where
             }
         }
 
-        blueprint.steps.get(index + 1).cloned().map(|step| RetryTarget {
-            step,
-            consumed_next: true,
-        })
+        blueprint
+            .steps
+            .get(index + 1)
+            .cloned()
+            .map(|step| RetryTarget {
+                step,
+                consumed_next: true,
+            })
     }
 
     fn run_agentic_with_retries(
@@ -480,11 +517,8 @@ where
                             steps: vec![target.step.clone()],
                             source_path: None,
                         };
-                        let mut results = self.run_sub_blueprint(
-                            &target.step,
-                            &synthetic_parent,
-                            context,
-                        )?;
+                        let mut results =
+                            self.run_sub_blueprint(&target.step, &synthetic_parent, context)?;
                         results.pop().ok_or_else(|| {
                             ForgeError::message("retry target produced no step results")
                         })?
@@ -506,12 +540,7 @@ where
                 }
 
                 if attempts >= max_retries {
-                    self.logger.log_step(&agent_result)?;
-                    self.logger.log_step(&test_result)?;
-                    return Err(ForgeError::message(format!(
-                        "step `{}` failed after {attempts} attempts",
-                        step.name
-                    )));
+                    return Ok((agent_result, Some(test_result), consumed_next));
                 }
                 continue;
             }
@@ -520,11 +549,7 @@ where
                 return Ok((agent_result, None, consumed_next));
             }
             if attempts >= max_retries {
-                self.logger.log_step(&agent_result)?;
-                return Err(ForgeError::message(format!(
-                    "step `{}` failed after {attempts} attempts",
-                    step.name
-                )));
+                return Ok((agent_result, None, consumed_next));
             }
         }
     }
@@ -611,6 +636,42 @@ fn write_step_log(
 
 fn join_step_output(result: &StepResult) -> String {
     vars::join_output(&result.stdout, &result.stderr)
+}
+
+fn print_step_started(name: &str) {
+    eprintln!("▶ {name} ...");
+}
+
+fn print_step_finished(name: &str, exit_code: i32, elapsed_secs: f64) {
+    if exit_code == 0 {
+        eprintln!("✓ {name} ({elapsed_secs:.1}s)");
+    } else {
+        eprintln!("✗ {name} (exit {exit_code}, {elapsed_secs:.1}s)");
+    }
+}
+
+fn step_display_exit_code(status: &StepStatus, exit_code: i32) -> i32 {
+    match status {
+        StepStatus::Succeeded => 0,
+        StepStatus::Failed => exit_code,
+        StepStatus::Pending | StepStatus::Skipped => 0,
+    }
+}
+
+fn agentic_step_outcome(
+    agent_result: &StepResult,
+    retry_result: Option<&StepResult>,
+) -> (StepStatus, i32) {
+    match retry_result {
+        Some(result) if result.status == StepStatus::Failed => {
+            (StepStatus::Failed, result.exit_code)
+        }
+        Some(_) => (StepStatus::Succeeded, 0),
+        None => (
+            agent_result.status.clone(),
+            step_display_exit_code(&agent_result.status, agent_result.exit_code),
+        ),
+    }
 }
 
 fn dashboard_status(status: &StepStatus) -> DashboardStepStatus {

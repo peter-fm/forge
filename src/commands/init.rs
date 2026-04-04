@@ -35,7 +35,11 @@ pub fn write_generated_files(
         force,
     )?;
     for (filename, contents) in render_default_blueprints(detected) {
-        write_generated_file(&root.join(".forge/blueprints").join(filename), &contents, force)?;
+        write_generated_file(
+            &root.join(".forge/blueprints").join(filename),
+            &contents,
+            force,
+        )?;
     }
 
     let config = crate::config::load_forge_config_str(&render_config(detected))?;
@@ -51,7 +55,10 @@ fn render_default_blueprints(detected: &DetectedProject) -> Vec<(&'static str, S
         ("refactor.toml", render_refactor_blueprint(detected)),
         ("pr-review.toml", render_pr_review_blueprint(detected)),
         ("code-review.toml", render_code_review_blueprint(detected)),
-        ("refactor-phase.toml", render_refactor_phase_blueprint(detected)),
+        (
+            "refactor-phase.toml",
+            render_refactor_phase_blueprint(detected),
+        ),
         (
             "refactor-finalize.toml",
             render_refactor_finalize_blueprint(detected),
@@ -239,7 +246,9 @@ pub fn render_code_review_blueprint(_detected: &DetectedProject) -> String {
     let mut output = String::from(GENERATED_HEADER);
     output.push_str("[blueprint]\n");
     output.push_str("name = \"code-review\"\n");
-    output.push_str("description = \"Review an existing pull request and post feedback via GitHub\"\n\n");
+    output.push_str(
+        "description = \"Review an existing pull request and post feedback via GitHub\"\n\n",
+    );
     append_command_step(&mut output, "checkout-pr", "gh pr checkout {pr}", false);
     output.push_str("[[step]]\n");
     output.push_str("type = \"agentic\"\n");
