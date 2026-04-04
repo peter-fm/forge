@@ -136,7 +136,10 @@ fn now_secs() -> Result<u64, ForgeError> {
         .map_err(|error| ForgeError::message(error.to_string()))
 }
 
-fn create_unique_run_log(base_dir: &Path, timestamp: u64) -> Result<(PathBuf, PathBuf), ForgeError> {
+fn create_unique_run_log(
+    base_dir: &Path,
+    timestamp: u64,
+) -> Result<(PathBuf, PathBuf), ForgeError> {
     let mut attempt = 0;
     loop {
         let run_name = if attempt == 0 {
@@ -148,7 +151,10 @@ fn create_unique_run_log(base_dir: &Path, timestamp: u64) -> Result<(PathBuf, Pa
         match fs::create_dir(&run_dir) {
             Ok(_) => {
                 let path = run_dir.join("run.jsonl");
-                OpenOptions::new().write(true).create_new(true).open(&path)?;
+                OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&path)?;
                 return Ok((run_dir, path));
             }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
@@ -186,7 +192,7 @@ fn sanitize_step_name(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{create_unique_run_log, sanitize_step_name, JsonlRunLogger, RunLogger};
+    use super::{JsonlRunLogger, RunLogger, create_unique_run_log, sanitize_step_name};
     use tempfile::tempdir;
 
     #[test]
@@ -194,7 +200,8 @@ mod tests {
         let dir = tempdir().expect("tempdir");
 
         let (first_dir, first) = create_unique_run_log(dir.path(), 123).expect("first logger path");
-        let (second_dir, second) = create_unique_run_log(dir.path(), 123).expect("second logger path");
+        let (second_dir, second) =
+            create_unique_run_log(dir.path(), 123).expect("second logger path");
 
         assert_ne!(first, second);
         assert_eq!(
@@ -205,8 +212,14 @@ mod tests {
             second_dir.file_name().and_then(|value| value.to_str()),
             Some("run-123-1")
         );
-        assert_eq!(first.file_name().and_then(|value| value.to_str()), Some("run.jsonl"));
-        assert_eq!(second.file_name().and_then(|value| value.to_str()), Some("run.jsonl"));
+        assert_eq!(
+            first.file_name().and_then(|value| value.to_str()),
+            Some("run.jsonl")
+        );
+        assert_eq!(
+            second.file_name().and_then(|value| value.to_str()),
+            Some("run.jsonl")
+        );
     }
 
     #[test]

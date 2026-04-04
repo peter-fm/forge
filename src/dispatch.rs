@@ -129,7 +129,10 @@ fn run_codex(
     Ok(diff)
 }
 
-fn spawn_reader<R>(mut reader: R, sink: Option<Arc<Mutex<std::fs::File>>>) -> thread::JoinHandle<io::Result<Vec<u8>>>
+fn spawn_reader<R>(
+    mut reader: R,
+    sink: Option<Arc<Mutex<std::fs::File>>>,
+) -> thread::JoinHandle<io::Result<Vec<u8>>>
 where
     R: Read + Send + 'static,
 {

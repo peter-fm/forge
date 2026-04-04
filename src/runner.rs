@@ -316,15 +316,14 @@ where
                     apply_sets(step, &result, context);
                     return Ok(result);
                 }
-                self.runtime
-                    .run_agent(
-                        &step.name,
-                        &agent,
-                        &model,
-                        &prompt,
-                        &env,
-                        step_log_path(&step_log),
-                    )?
+                self.runtime.run_agent(
+                    &step.name,
+                    &agent,
+                    &model,
+                    &prompt,
+                    &env,
+                    step_log_path(&step_log),
+                )?
             }
             StepType::Blueprint => {
                 return Err(ForgeError::message(format!(
@@ -580,7 +579,11 @@ fn step_log_path(step_log: &Option<StepLog>) -> Option<&Path> {
     step_log.as_ref().map(|log| log.path.as_path())
 }
 
-fn write_step_log(step_log: Option<&StepLog>, stdout: &str, stderr: &str) -> Result<(), ForgeError> {
+fn write_step_log(
+    step_log: Option<&StepLog>,
+    stdout: &str,
+    stderr: &str,
+) -> Result<(), ForgeError> {
     let Some(step_log) = step_log else {
         return Ok(());
     };

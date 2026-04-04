@@ -5,6 +5,7 @@ use std::fs;
 use std::path::Path;
 
 const GENERATED_HEADER: &str = "# forge-generated\n";
+const DEFAULT_BRANCH_EXPR: &str = "$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's:refs/remotes/origin/::' || echo main)";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InitOptions {
@@ -213,10 +214,17 @@ fn render_branching_blueprint(
     append_command_step(
         &mut output,
         "create-pr",
-        "gh pr create --base main --head {branch} --body-file .forge/pr-body.md --title \"{commit_message}\"",
+        &format!(
+            "gh pr create --base {DEFAULT_BRANCH_EXPR} --head {{branch}} --body-file .forge/pr-body.md --title \"{{commit_message}}\""
+        ),
         false,
     );
-    append_command_step(&mut output, "checkout-main", "git checkout main", false);
+    append_command_step(
+        &mut output,
+        "checkout-main",
+        &format!("git checkout {DEFAULT_BRANCH_EXPR}"),
+        false,
+    );
     output
 }
 
@@ -225,26 +233,28 @@ pub fn render_pr_review_blueprint(detected: &DetectedProject) -> String {
     output.push_str("[blueprint]\n");
     output.push_str("name = \"pr-review\"\n");
     output.push_str(
-        "description = \"Senior engineer review of a PR — review implementation, merge to main, run final tests\"\n\n",
+        "description = \"Senior engineer review of a PR — review implementation, merge to the default branch, run final tests\"\n\n",
     );
     output.push_str("[[step]]\n");
     output.push_str("type = \"agentic\"\n");
     output.push_str("name = \"review\"\n");
     output.push_str("agent = \"codex\"\n");
     output.push_str("model = \"gpt-5.4\"\n");
-    output.push_str("prompt = \"\"\"You are a senior engineer reviewing PR #{pr}.\n\n1. Read the PR description:\n   gh pr view {pr} --json title,body,additions,deletions,changedFiles\n\n2. Check out the branch and read the full diff:\n   gh pr checkout {pr}\n   git diff main...HEAD\n\n3. Review the implementation from the standpoint of the system as a whole:\n   - Does the design make sense in the context of the broader codebase?\n   - Are there architectural concerns, coupling issues, or missed edge cases?\n   - Is the code consistent with existing patterns and conventions?\n   - Are tests adequate — do they cover the new behaviour and edge cases?\n   - Is there anything the implementing agent missed or got wrong?\n\n4. If you find issues:\n   - Leave review comments via gh pr review {pr} --comment --body \\\"...\\\"\n   - Be specific: reference files, lines, and explain why it matters\n   - Distinguish blocking issues from suggestions\n\n5. If the code is good (or after addressing issues):\n   - Approve: gh pr review {pr} --approve --body \\\"LGTM — <brief summary>\\\"\"\"\"\n");
+    output.push_str(&format!("prompt = \"\"\"You are a senior engineer reviewing PR #{{pr}}.\n\n1. Read the PR description:\n   gh pr view {{pr}} --json title,body,additions,deletions,changedFiles\n\n2. Check out the branch and read the full diff:\n   gh pr checkout {{pr}}\n   git diff {DEFAULT_BRANCH_EXPR}...HEAD\n\n3. Review the implementation from the standpoint of the system as a whole:\n   - Does the design make sense in the context of the broader codebase?\n   - Are there architectural concerns, coupling issues, or missed edge cases?\n   - Is the code consistent with existing patterns and conventions?\n   - Are tests adequate — do they cover the new behaviour and edge cases?\n   - Is there anything the implementing agent missed or got wrong?\n\n4. If you find issues:\n   - Leave review comments via gh pr review {{pr}} --comment --body \\\"...\\\"\n   - Be specific: reference files, lines, and explain why it matters\n   - Distinguish blocking issues from suggestions\n\n5. If the code is good (or after addressing issues):\n   - Approve: gh pr review {{pr}} --approve --body \\\"LGTM — <brief summary>\\\"\"\"\"\n"));
     output.push_str("max_retries = 1\n\n");
     output.push_str("[[step]]\n");
     output.push_str("type = \"agentic\"\n");
     output.push_str("name = \"merge\"\n");
     output.push_str("agent = \"codex\"\n");
     output.push_str("model = \"gpt-5.4\"\n");
-    output.push_str("prompt = \"\"\"Merge PR #{pr} to main.\n\n1. First, try a clean merge:\n   gh pr merge {pr} --squash --auto\n\n2. If there are merge conflicts:\n   - Check out the PR branch\n   - Merge main into it: git merge main\n   - Resolve conflicts carefully — understand both sides before choosing\n   - Preserve the intent of both the PR and the conflicting changes\n   - Commit the resolution and push\n   - Then merge the PR\n\n3. If conflicts are too complex to resolve safely, do NOT force merge.\n   Instead, report what conflicts exist and stop.\"\"\"\n");
+    output.push_str(&format!("prompt = \"\"\"Merge PR #{{pr}} to the default branch.\n\n1. First, try a clean merge:\n   gh pr merge {{pr}} --squash --auto\n\n2. If there are merge conflicts:\n   - Check out the PR branch\n   - Merge the default branch into it: git merge {DEFAULT_BRANCH_EXPR}\n   - Resolve conflicts carefully — understand both sides before choosing\n   - Preserve the intent of both the PR and the conflicting changes\n   - Commit the resolution and push\n   - Then merge the PR\n\n3. If conflicts are too complex to resolve safely, do NOT force merge.\n   Instead, report what conflicts exist and stop.\"\"\"\n"));
     output.push_str("max_retries = 1\n\n");
     output.push_str("[[step]]\n");
     output.push_str("type = \"deterministic\"\n");
     output.push_str("name = \"checkout-main\"\n");
-    output.push_str("command = \"git checkout main && git pull\"\n\n");
+    output.push_str(&format!(
+        "command = \"git checkout {DEFAULT_BRANCH_EXPR} && git pull\"\n\n"
+    ));
     output.push_str("[[step]]\n");
     output.push_str("type = \"deterministic\"\n");
     output.push_str("name = \"post-merge-test\"\n");
@@ -302,7 +312,7 @@ fn append_write_pr_steps(output: &mut String) {
     output.push_str("name = \"write-pr\"\n");
     output.push_str("agent = \"{target_agent}\"\n");
     output.push_str("model = \"{target_model}\"\n");
-    output.push_str("prompt = \"\"\"You have just completed work on this branch. Now write up a pull request description.\n\n1. Run `git diff main...HEAD` to see everything you changed.\n2. Read the original task instructions at {instruction_path}.\n3. Write a PR description covering:\n   - What problem this solves (from the task brief)\n   - How you solved it (architectural decisions, key changes)\n   - What changed (files modified, new files, removed files)\n   - How to verify (what tests cover this, how to manually check)\n4. Save the PR description to `.forge/pr-body.md`.\n\nDo not create the PR yourself. Only write the contents for `.forge/pr-body.md`.\"\"\"\n\n");
+    output.push_str(&format!("prompt = \"\"\"You have just completed work on this branch. Now write up a pull request description.\n\n1. Run `git diff {DEFAULT_BRANCH_EXPR}...HEAD` to see everything you changed.\n2. Read the original task instructions at {{instruction_path}}.\n3. Write a PR description covering:\n   - What problem this solves (from the task brief)\n   - How you solved it (architectural decisions, key changes)\n   - What changed (files modified, new files, removed files)\n   - How to verify (what tests cover this, how to manually check)\n4. Save the PR description to `.forge/pr-body.md`.\n\nDo not create the PR yourself. Only write the contents for `.forge/pr-body.md`.\"\"\"\n\n"));
 }
 
 fn append_docs_check_step(output: &mut String) {
@@ -311,7 +321,7 @@ fn append_docs_check_step(output: &mut String) {
     output.push_str("name = \"docs-check\"\n");
     output.push_str("agent = \"{target_agent}\"\n");
     output.push_str("model = \"{target_model}\"\n");
-    output.push_str("prompt = \"\"\"Review the changes you just made and check if the project documentation needs updating.\n\n1. Run `git diff main...HEAD --name-only` to see what files changed.\n2. Read README.md (if it exists) and check if any of these are now outdated:\n   - Feature descriptions that no longer match the code\n   - CLI usage examples that have changed\n   - Installation instructions that need updating\n   - Configuration options that were added or removed\n   - Project structure sections that don't reflect new/moved files\n3. Check docs/ directory (if it exists) for any files affected by your changes.\n4. Check AGENTS.md (if it exists) for outdated workflow instructions.\n5. If anything needs updating, make the changes.\n6. If everything is already accurate, do nothing — don't make changes for the sake of it.\n\nOnly update documentation that is genuinely affected by the code changes. Do not rewrite docs that are still correct.\n\"\"\"\n");
+    output.push_str(&format!("prompt = \"\"\"Review the changes you just made and check if the project documentation needs updating.\n\n1. Run `git diff {DEFAULT_BRANCH_EXPR}...HEAD --name-only` to see what files changed.\n2. Read README.md (if it exists) and check if any of these are now outdated:\n   - Feature descriptions that no longer match the code\n   - CLI usage examples that have changed\n   - Installation instructions that need updating\n   - Configuration options that were added or removed\n   - Project structure sections that don't reflect new/moved files\n3. Check docs/ directory (if it exists) for any files affected by your changes.\n4. Check AGENTS.md (if it exists) for outdated workflow instructions.\n5. If anything needs updating, make the changes.\n6. If everything is already accurate, do nothing — don't make changes for the sake of it.\n\nOnly update documentation that is genuinely affected by the code changes. Do not rewrite docs that are still correct.\n\"\"\"\n"));
     output.push_str("allow_failure = true\n\n");
 }
 
