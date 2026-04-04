@@ -8,7 +8,6 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
 
 #[derive(Debug, Default)]
 pub struct ProcessRuntime;
@@ -106,60 +105,18 @@ fn run_codex(
     log_path: Option<&Path>,
 ) -> Result<ExecutionOutput, ForgeError> {
     let repo_path = infer_repo_path(step_name, prompt, env)?;
-    let session_name = format!("forge-{}", sanitize_session_name(step_name));
     let codex_flags = env
         .get("FORGE_CODEX_FLAGS")
         .cloned()
         .unwrap_or_else(|| "--yolo".to_string());
-
-    let prompt_file = std::env::temp_dir().join(format!(
-        "forge-prompt-{}.md",
-        sanitize_session_name(step_name)
-    ));
-    std::fs::write(&prompt_file, prompt)
-        .map_err(|err| ForgeError::message(format!("failed to write prompt file: {err}")))?;
-    let script_file =
-        std::env::temp_dir().join(format!("forge-run-{}.sh", sanitize_session_name(step_name)));
-    std::fs::write(
-        &script_file,
-        format!(
-            "#!/bin/bash\ncd {}\nexec codex {} --model {} exec \"$(cat {})\"{}",
-            shell_quote(&repo_path),
-            codex_flags,
-            shell_quote(model),
-            shell_quote(&prompt_file.to_string_lossy()),
-            log_redirect(log_path),
-        ),
-    )
-    .map_err(|err| ForgeError::message(format!("failed to write script file: {err}")))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script_file, std::fs::Permissions::from_mode(0o755))
-            .map_err(|err| ForgeError::message(format!("failed to chmod script: {err}")))?;
-    }
-
-    let start = format!(
-        "tmux new-session -d -s {} {}",
-        shell_quote(&session_name),
-        shell_quote(&script_file.to_string_lossy()),
+    let command = format!(
+        "cd {} && codex {} --model {} exec {}",
+        shell_quote(&repo_path),
+        codex_flags,
+        shell_quote(model),
+        shell_quote(prompt)
     );
-    let start_result = run_shell(&start, env, None)?;
-    if start_result.exit_code != 0 {
-        return Ok(start_result);
-    }
-
-    loop {
-        let exists = run_shell(
-            &format!("tmux has-session -t {}", shell_quote(&session_name)),
-            env,
-            None,
-        )?;
-        if exists.exit_code != 0 {
-            break;
-        }
-        thread::sleep(Duration::from_secs(60));
-    }
+    let _ = run_shell(&command, env, log_path)?;
 
     let diff = run_shell(
         &format!(
@@ -169,11 +126,6 @@ fn run_codex(
         env,
         None,
     )?;
-    let _ = run_shell(
-        &format!("tmux kill-session -t {}", shell_quote(&session_name)),
-        env,
-        None,
-    );
     Ok(diff)
 }
 
@@ -210,12 +162,6 @@ fn join_reader(handle: thread::JoinHandle<io::Result<Vec<u8>>>) -> Result<Vec<u8
         .join()
         .map_err(|_| ForgeError::message("failed to join process output reader"))?
         .map_err(ForgeError::from)
-}
-
-fn log_redirect(log_path: Option<&Path>) -> String {
-    log_path
-        .map(|path| format!(" >> {} 2>&1", shell_quote(&path.display().to_string())))
-        .unwrap_or_default()
 }
 
 fn infer_repo_path(
@@ -316,19 +262,6 @@ fn apply_env<'a>(command: &'a mut Command, env: &BTreeMap<String, String>) -> &'
 
 fn shell_quote(input: &str) -> String {
     format!("'{}'", input.replace('\'', "'\"'\"'"))
-}
-
-fn sanitize_session_name(input: &str) -> String {
-    input
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '-' {
-                ch
-            } else {
-                '-'
-            }
-        })
-        .collect()
 }
 
 #[cfg(test)]
