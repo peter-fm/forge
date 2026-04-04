@@ -32,6 +32,9 @@ fn init_creates_forge_layout_and_gitignore_entries() {
     assert!(dir.path().join(".forge/blueprints/fix-bug.toml").exists());
     assert!(dir.path().join(".forge/blueprints/refactor.toml").exists());
     assert!(dir.path().join(".forge/blueprints/pr-review.toml").exists());
+    assert!(dir.path().join(".forge/blueprints/code-review.toml").exists());
+    assert!(dir.path().join(".forge/blueprints/refactor-phase.toml").exists());
+    assert!(dir.path().join(".forge/blueprints/refactor-finalize.toml").exists());
     assert!(dir.path().join(".forge/blueprints/test.toml").exists());
     assert!(dir.path().join(".forge/instructions/.gitkeep").exists());
     assert!(dir.path().join(".forge/archive").exists());
@@ -71,6 +74,36 @@ fn init_creates_forge_layout_and_gitignore_entries() {
     assert!(pr_review.contains("gh pr checkout {pr}"));
     assert!(pr_review.contains("name = \"post-merge-test\""));
     assert!(pr_review.contains("name = \"post-merge-lint\""));
+
+    let code_review = fs::read_to_string(dir.path().join(".forge/blueprints/code-review.toml"))
+        .expect("read code-review blueprint");
+    assert!(code_review.contains("name = \"code-review\""));
+    assert!(code_review.contains("name = \"checkout-pr\""));
+    assert!(code_review.contains("command = \"gh pr checkout {pr}\""));
+    assert!(code_review.contains("name = \"review\""));
+
+    let refactor_phase =
+        fs::read_to_string(dir.path().join(".forge/blueprints/refactor-phase.toml"))
+            .expect("read refactor-phase blueprint");
+    assert!(refactor_phase.contains("name = \"refactor-phase\""));
+    assert!(refactor_phase.contains("name = \"checkout-or-create-branch\""));
+    assert!(refactor_phase.contains("name = \"implement-phase\""));
+    assert!(refactor_phase.contains("name = \"commit-backstop\""));
+    assert!(refactor_phase.contains("name = \"test\""));
+    assert!(refactor_phase.contains("allow_failure = true"));
+    assert!(refactor_phase.contains("name = \"fix-tests\""));
+    assert!(refactor_phase.contains("condition = \"test.exit_code != 0\""));
+
+    for branching in ["new-feature", "fix-bug", "refactor"] {
+        let blueprint = fs::read_to_string(
+            dir.path()
+                .join(".forge/blueprints")
+                .join(format!("{branching}.toml")),
+        )
+        .expect("read branching blueprint");
+        assert!(blueprint.contains("name = \"fix-lint\""));
+        assert!(blueprint.contains("condition = \"lint.exit_code != 0\""));
+    }
 
     let test_blueprint = fs::read_to_string(dir.path().join(".forge/blueprints/test.toml"))
         .expect("read test blueprint");

@@ -34,38 +34,33 @@ pub fn write_generated_files(
         &render_config(detected),
         force,
     )?;
-    write_generated_file(
-        &root.join(".forge/blueprints/new-feature.toml"),
-        &render_new_feature_blueprint(detected),
-        force,
-    )?;
-    write_generated_file(
-        &root.join(".forge/blueprints/fix-bug.toml"),
-        &render_fix_bug_blueprint(detected),
-        force,
-    )?;
-    write_generated_file(
-        &root.join(".forge/blueprints/refactor.toml"),
-        &render_refactor_blueprint(detected),
-        force,
-    )?;
-    write_generated_file(
-        &root.join(".forge/blueprints/pr-review.toml"),
-        &render_pr_review_blueprint(detected),
-        force,
-    )?;
-    if detected.commands.test.is_some() {
-        write_generated_file(
-            &root.join(".forge/blueprints/test.toml"),
-            &render_test_blueprint(detected),
-            force,
-        )?;
+    for (filename, contents) in render_default_blueprints(detected) {
+        write_generated_file(&root.join(".forge/blueprints").join(filename), &contents, force)?;
     }
 
     let config = crate::config::load_forge_config_str(&render_config(detected))?;
     ensure_workspace_layout(root, &config)?;
 
     Ok(())
+}
+
+fn render_default_blueprints(detected: &DetectedProject) -> Vec<(&'static str, String)> {
+    let mut blueprints = vec![
+        ("new-feature.toml", render_new_feature_blueprint(detected)),
+        ("fix-bug.toml", render_fix_bug_blueprint(detected)),
+        ("refactor.toml", render_refactor_blueprint(detected)),
+        ("pr-review.toml", render_pr_review_blueprint(detected)),
+        ("code-review.toml", render_code_review_blueprint(detected)),
+        ("refactor-phase.toml", render_refactor_phase_blueprint(detected)),
+        (
+            "refactor-finalize.toml",
+            render_refactor_finalize_blueprint(detected),
+        ),
+    ];
+    if detected.commands.test.is_some() {
+        blueprints.push(("test.toml", render_test_blueprint(detected)));
+    }
+    blueprints
 }
 
 pub fn render_config(detected: &DetectedProject) -> String {
@@ -185,7 +180,13 @@ fn render_branching_blueprint(
             .lint
             .as_deref()
             .unwrap_or("{lint_command}"),
-        false,
+        true,
+    );
+    append_agentic_retry_step(
+        &mut output,
+        "fix-lint",
+        "The linter reported errors. Run the lint command again to see the failures, then fix them. Only fix lint issues, do not change functionality.",
+        "lint.exit_code != 0",
     );
     append_command_step(
         &mut output,
@@ -195,7 +196,13 @@ fn render_branching_blueprint(
             .test
             .as_deref()
             .unwrap_or("{test_command}"),
-        false,
+        true,
+    );
+    append_agentic_retry_step(
+        &mut output,
+        "fix-tests",
+        "The tests failed. Run the test command again to see the specific failures, then fix them. Only fix test failures, do not change functionality.",
+        "test.exit_code != 0",
     );
     append_docs_check_step(&mut output);
     append_command_step(
@@ -225,6 +232,21 @@ fn render_branching_blueprint(
         &format!("git checkout {DEFAULT_BRANCH_EXPR}"),
         false,
     );
+    output
+}
+
+pub fn render_code_review_blueprint(_detected: &DetectedProject) -> String {
+    let mut output = String::from(GENERATED_HEADER);
+    output.push_str("[blueprint]\n");
+    output.push_str("name = \"code-review\"\n");
+    output.push_str("description = \"Review an existing pull request and post feedback via GitHub\"\n\n");
+    append_command_step(&mut output, "checkout-pr", "gh pr checkout {pr}", false);
+    output.push_str("[[step]]\n");
+    output.push_str("type = \"agentic\"\n");
+    output.push_str("name = \"review\"\n");
+    output.push_str("agent = \"{target_agent}\"\n");
+    output.push_str("model = \"{target_model}\"\n");
+    output.push_str(&format!("prompt = \"\"\"Review pull request #{{pr}} carefully.\n\n1. Read the PR details: `gh pr view {{pr}} --json title,body,files,commits,comments,reviews`.\n2. Read the diff against the default branch: `git diff {DEFAULT_BRANCH_EXPR}...HEAD`.\n3. Review for bugs, regressions, missing tests, style inconsistencies, and design issues.\n4. Post your review with `gh pr review {{pr}}`:\n   - If you found issues, leave a comment review that explains the problems clearly.\n   - If the PR looks good, approve it with a short rationale.\n\nBe specific and reference files or behaviors when calling out problems.\"\"\"\n"));
     output
 }
 
@@ -285,6 +307,104 @@ pub fn render_pr_review_blueprint(detected: &DetectedProject) -> String {
     output
 }
 
+pub fn render_refactor_phase_blueprint(detected: &DetectedProject) -> String {
+    let mut output = String::from(GENERATED_HEADER);
+    output.push_str("[blueprint]\n");
+    output.push_str("name = \"refactor-phase\"\n");
+    output.push_str(
+        "description = \"Execute a single implementation phase of a multi-phase refactor\"\n\n",
+    );
+    append_command_step(
+        &mut output,
+        "checkout-or-create-branch",
+        "git checkout {refactor_branch} 2>/dev/null || git checkout -b {refactor_branch}",
+        false,
+    );
+    output.push_str("[[step]]\n");
+    output.push_str("type = \"agentic\"\n");
+    output.push_str("name = \"implement-phase\"\n");
+    output.push_str("agent = \"{target_agent}\"\n");
+    output.push_str("model = \"{target_model}\"\n");
+    output.push_str("prompt = \"\"\"Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Implement this refactor phase without changing intended behavior outside the scoped phase.\"\"\"\n\n");
+    append_command_step(
+        &mut output,
+        "commit-backstop",
+        "git add -A && git diff --cached --quiet || git commit -m \"{commit_message}\"",
+        false,
+    );
+    append_command_step(
+        &mut output,
+        "test",
+        detected
+            .commands
+            .test
+            .as_deref()
+            .unwrap_or("{test_command}"),
+        true,
+    );
+    append_agentic_retry_step(
+        &mut output,
+        "fix-tests",
+        "The tests failed. Run the test command again to see the specific failures, then fix them. Only fix test failures, do not change functionality.",
+        "test.exit_code != 0",
+    );
+    output
+}
+
+pub fn render_refactor_finalize_blueprint(detected: &DetectedProject) -> String {
+    let mut output = String::from(GENERATED_HEADER);
+    output.push_str("[blueprint]\n");
+    output.push_str("name = \"refactor-finalize\"\n");
+    output.push_str(
+        "description = \"Finalize a multi-phase refactor and open the pull request\"\n\n",
+    );
+    append_command_step(
+        &mut output,
+        "checkout-branch",
+        "git checkout {refactor_branch}",
+        false,
+    );
+    append_command_step(
+        &mut output,
+        "final-test",
+        detected
+            .commands
+            .test
+            .as_deref()
+            .unwrap_or("{test_command}"),
+        false,
+    );
+    append_docs_check_step(&mut output);
+    append_command_step(
+        &mut output,
+        "docs-commit-backstop",
+        "git add -A && git diff --cached --quiet || git commit -m \"docs: update documentation\"",
+        false,
+    );
+    append_command_step(
+        &mut output,
+        "push-branch",
+        "git push origin {refactor_branch}",
+        false,
+    );
+    append_write_pr_steps(&mut output);
+    append_command_step(
+        &mut output,
+        "create-pr",
+        &format!(
+            "gh pr create --base {DEFAULT_BRANCH_EXPR} --head {{refactor_branch}} --body-file .forge/pr-body.md --title \"{{commit_message}}\""
+        ),
+        false,
+    );
+    append_command_step(
+        &mut output,
+        "checkout-main",
+        &format!("git checkout {DEFAULT_BRANCH_EXPR}"),
+        false,
+    );
+    output
+}
+
 pub fn render_test_blueprint(detected: &DetectedProject) -> String {
     let mut output = String::from(GENERATED_HEADER);
     output.push_str("[blueprint]\n");
@@ -323,6 +443,17 @@ fn append_docs_check_step(output: &mut String) {
     output.push_str("model = \"{target_model}\"\n");
     output.push_str(&format!("prompt = \"\"\"Review the changes you just made and check if the project documentation needs updating.\n\n1. Run `git diff {DEFAULT_BRANCH_EXPR}...HEAD --name-only` to see what files changed.\n2. Read README.md (if it exists) and check if any of these are now outdated:\n   - Feature descriptions that no longer match the code\n   - CLI usage examples that have changed\n   - Installation instructions that need updating\n   - Configuration options that were added or removed\n   - Project structure sections that don't reflect new/moved files\n3. Check docs/ directory (if it exists) for any files affected by your changes.\n4. Check AGENTS.md (if it exists) for outdated workflow instructions.\n5. If anything needs updating, make the changes.\n6. If everything is already accurate, do nothing — don't make changes for the sake of it.\n\nOnly update documentation that is genuinely affected by the code changes. Do not rewrite docs that are still correct.\n\"\"\"\n"));
     output.push_str("allow_failure = true\n\n");
+}
+
+fn append_agentic_retry_step(output: &mut String, name: &str, prompt: &str, condition: &str) {
+    output.push_str("[[step]]\n");
+    output.push_str("type = \"agentic\"\n");
+    output.push_str(&format!("name = \"{}\"\n", escape_toml(name)));
+    output.push_str("agent = \"{target_agent}\"\n");
+    output.push_str("model = \"{target_model}\"\n");
+    output.push_str(&format!("prompt = \"\"\"{}\"\"\"\n", prompt));
+    output.push_str(&format!("condition = \"{}\"\n", escape_toml(condition)));
+    output.push_str("max_retries = 2\n\n");
 }
 
 fn append_command_step(output: &mut String, name: &str, command: &str, allow_failure: bool) {

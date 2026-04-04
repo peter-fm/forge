@@ -135,7 +135,7 @@ where
             self.write_status_snapshot(blueprint, context, Some(&step.name), "running")?;
 
             if step.step_type == StepType::Agentic && step.max_retries.unwrap_or(0) > 0 {
-                let retry_target = self.determine_retry_target(blueprint, index, context);
+                let retry_target = self.determine_retry_target(blueprint, index);
                 let (agent_result, retry_result, consumed_next) =
                     self.run_agentic_with_retries(step, retry_target.as_ref(), context)?;
                 if is_root {
@@ -148,10 +148,10 @@ where
                     );
                 }
                 self.record_result(context, &mut summary_steps, agent_result)?;
+                if let Some(target_result) = retry_result {
+                    self.record_result(context, &mut summary_steps, target_result)?;
+                }
                 if consumed_next {
-                    if let Some(target_result) = retry_result {
-                        self.record_result(context, &mut summary_steps, target_result)?;
-                    }
                     self.write_status_snapshot(blueprint, context, None, "running")?;
                     index += 2;
                 } else {
@@ -417,34 +417,39 @@ where
         &self,
         blueprint: &Blueprint,
         index: usize,
-        context: &RunContext,
-    ) -> Option<Step> {
+    ) -> Option<RetryTarget> {
         let step = &blueprint.steps[index];
         if let Some(condition) = &step.condition {
             for token in
-                condition.split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '-' || ch == '.'))
+                condition.split(|ch: char| {
+                    !(ch.is_ascii_alphanumeric() || ch == '-' || ch == '.' || ch == '_')
+                })
             {
-                if let Some(name) = token.strip_suffix(".exit_code")
-                    && context.step_results.contains_key(name)
-                {
+                if let Some(name) = token.strip_suffix(".exit_code") {
                     if let Some(existing_step) = blueprint
                         .steps
                         .iter()
                         .find(|candidate| candidate.name == name)
                     {
-                        return Some(existing_step.clone());
+                        return Some(RetryTarget {
+                            step: existing_step.clone(),
+                            consumed_next: false,
+                        });
                     }
                 }
             }
         }
 
-        blueprint.steps.get(index + 1).cloned()
+        blueprint.steps.get(index + 1).cloned().map(|step| RetryTarget {
+            step,
+            consumed_next: true,
+        })
     }
 
     fn run_agentic_with_retries(
         &mut self,
         step: &Step,
-        retry_target: Option<&Step>,
+        retry_target: Option<&RetryTarget>,
         context: &mut RunContext,
     ) -> Result<(StepResult, Option<StepResult>, bool), ForgeError> {
         let max_retries = step.max_retries.unwrap_or(1);
@@ -465,23 +470,26 @@ where
                 .insert(step.name.clone(), agent_result.clone());
 
             if let Some(target) = retry_target {
+                consumed_next = target.consumed_next;
                 let mut test_result =
-                    if matches!(target.step_type, StepType::Blueprint | StepType::Gate)
-                        && target.blueprint.is_some()
+                    if matches!(target.step.step_type, StepType::Blueprint | StepType::Gate)
+                        && target.step.blueprint.is_some()
                     {
                         let synthetic_parent = Blueprint {
                             blueprint: blueprint_meta("retry"),
-                            steps: vec![target.clone()],
+                            steps: vec![target.step.clone()],
                             source_path: None,
                         };
-                        let mut results =
-                            self.run_sub_blueprint(target, &synthetic_parent, context)?;
+                        let mut results = self.run_sub_blueprint(
+                            &target.step,
+                            &synthetic_parent,
+                            context,
+                        )?;
                         results.pop().ok_or_else(|| {
                             ForgeError::message("retry target produced no step results")
                         })?
                     } else {
-                        consumed_next = true;
-                        self.run_single_step(target, context)?
+                        self.run_single_step(&target.step, context)?
                     };
                 self.ensure_step_log(&mut test_result)?;
 
@@ -573,6 +581,12 @@ where
         }
         Ok(())
     }
+}
+
+#[derive(Clone)]
+struct RetryTarget {
+    step: Step,
+    consumed_next: bool,
 }
 
 fn step_log_path(step_log: &Option<StepLog>) -> Option<&Path> {

@@ -35,7 +35,9 @@ fn parses_generated_refactor_blueprint() {
             "refactor",
             "commit-backstop",
             "lint",
+            "fix-lint",
             "test",
+            "fix-tests",
             "docs-check",
             "docs-commit-backstop",
             "push-branch",
@@ -60,7 +62,9 @@ fn parses_generated_new_feature_blueprint() {
             "implement",
             "commit-backstop",
             "lint",
+            "fix-lint",
             "test",
+            "fix-tests",
             "docs-check",
             "docs-commit-backstop",
             "push-branch",
@@ -74,6 +78,12 @@ fn parses_generated_new_feature_blueprint() {
             .steps
             .iter()
             .any(|step| step.max_retries == Some(2))
+    );
+    assert!(
+        blueprint
+            .steps
+            .iter()
+            .any(|step| step.name == "fix-lint" && step.condition.as_deref() == Some("lint.exit_code != 0"))
     );
     assert!(blueprint.steps.iter().any(|step| step.name == "docs-check"));
     assert!(
@@ -105,7 +115,9 @@ fn generated_fix_bug_blueprint_uses_deterministic_branching_skeleton() {
             "fix",
             "commit-backstop",
             "lint",
+            "fix-lint",
             "test",
+            "fix-tests",
             "docs-check",
             "docs-commit-backstop",
             "push-branch",
@@ -120,6 +132,63 @@ fn generated_fix_bug_blueprint_uses_deterministic_branching_skeleton() {
             .as_deref()
             .unwrap_or_default()
             .contains("Commit your changes")
+    );
+}
+
+#[test]
+fn parses_generated_code_review_blueprint() {
+    let dir = init_generated_project();
+    let path = dir.path().join(".forge/blueprints/code-review.toml");
+    let blueprint = parse_blueprint_file(path).expect("code-review should parse");
+
+    assert_eq!(blueprint.blueprint.name, "code-review");
+    assert_branching_step_sequence(&blueprint, &["checkout-pr", "review"]);
+}
+
+#[test]
+fn parses_generated_refactor_phase_blueprint() {
+    let dir = init_generated_project();
+    let path = dir.path().join(".forge/blueprints/refactor-phase.toml");
+    let blueprint = parse_blueprint_file(path).expect("refactor-phase should parse");
+
+    assert_eq!(blueprint.blueprint.name, "refactor-phase");
+    assert_branching_step_sequence(
+        &blueprint,
+        &[
+            "checkout-or-create-branch",
+            "implement-phase",
+            "commit-backstop",
+            "test",
+            "fix-tests",
+        ],
+    );
+    assert!(
+        blueprint
+            .steps
+            .iter()
+            .any(|step| step.name == "fix-tests" && step.condition.as_deref() == Some("test.exit_code != 0"))
+    );
+}
+
+#[test]
+fn parses_generated_refactor_finalize_blueprint() {
+    let dir = init_generated_project();
+    let path = dir.path().join(".forge/blueprints/refactor-finalize.toml");
+    let blueprint = parse_blueprint_file(path).expect("refactor-finalize should parse");
+
+    assert_eq!(blueprint.blueprint.name, "refactor-finalize");
+    assert_branching_step_sequence(
+        &blueprint,
+        &[
+            "checkout-branch",
+            "final-test",
+            "docs-check",
+            "docs-commit-backstop",
+            "push-branch",
+            "write-pr",
+            "create-pr",
+            "checkout-main",
+        ],
     );
 }
 
@@ -594,6 +663,49 @@ fn retries_agentic_steps_until_tests_pass() {
             .filter(|step| step.name == "fix-tests")
             .count(),
         1
+    );
+}
+
+#[test]
+fn conditional_retry_step_retries_failed_previous_step() {
+    let mut lint = deterministic_step("lint", "cargo clippy");
+    lint.allow_failure = true;
+    let mut fix = agentic_step("fix-lint", "repair using {lint_output}");
+    fix.max_retries = Some(2);
+    fix.condition = Some("lint.exit_code != 0".to_string());
+    let test = deterministic_step("test", "cargo test");
+    let blueprint = blueprint_with_steps(vec![lint, fix, test]);
+
+    let runtime = MockRuntime::default();
+    runtime.push_command(1, "lint-1", "");
+    runtime.push_agent(0, "attempt-1", "");
+    runtime.push_command(0, "lint-2", "");
+    runtime.push_command(0, "tests-ok", "");
+
+    let mut engine = test_engine(
+        runtime.clone(),
+        MockLoader::default(),
+        MemoryLogger::default(),
+    );
+    let summary = engine
+        .run_blueprint(&blueprint, &mut RunContext::new())
+        .expect("retry should recover");
+
+    assert_eq!(
+        runtime.command_names(),
+        vec!["lint".to_string(), "lint".to_string(), "test".to_string()]
+    );
+    assert_eq!(
+        runtime.agent_prompts(),
+        vec!["repair using lint-1".to_string()]
+    );
+    assert_eq!(
+        summary
+            .steps
+            .iter()
+            .map(|step| step.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["lint", "fix-lint", "lint", "test"]
     );
 }
 
