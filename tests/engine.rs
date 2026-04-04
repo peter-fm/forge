@@ -1209,7 +1209,7 @@ fn build_run_variables_applies_resolution_order() {
         pr: None,
         agent: Some("override-agent".to_string()),
         model: None,
-        branch: None,
+        branch: Some("feat/add-verbose-flag".to_string()),
         dry_run: false,
         no_dashboard: false,
         port: 8400,
@@ -1262,7 +1262,7 @@ fn build_run_variables_applies_resolution_order() {
     );
     assert_eq!(
         variables.get("commit_message").map(String::as_str),
-        Some("Add Verbose Flag")
+        Some("feat/add-verbose-flag")
     );
     assert_eq!(variables.get("issue").map(String::as_str), Some("42"));
     assert_eq!(variables.get("issue_id").map(String::as_str), Some("42"));
@@ -1311,7 +1311,7 @@ fn init_generated_project() -> TempDir {
 fn auto_branch_name_matches_blueprint_conventions() {
     assert_eq!(
         auto_branch_name("code-review", None, None, None, "2026-03-22"),
-        "refactor/code-review-2026-03-22"
+        "work/cbf29ce"
     );
     assert_eq!(
         auto_branch_name(
@@ -1321,19 +1321,19 @@ fn auto_branch_name_matches_blueprint_conventions() {
             None,
             "2026-03-22",
         ),
-        "feat/add-verbose-flag-to-the-command-line"
+        "feat/65455c0"
     );
     assert_eq!(
         auto_branch_name("fix-bug", None, Some("42"), None, "2026-03-22"),
-        "fix/42"
+        "fix/cbf29ce"
     );
     assert_eq!(
         auto_branch_name("red-team", None, None, Some("5"), "2026-03-22"),
-        "red-team/round-5"
+        "work/cbf29ce"
     );
     assert_eq!(
         auto_branch_name("lint", None, None, None, "2026-03-22"),
-        "forge/lint-2026-03-22"
+        "work/cbf29ce"
     );
 }
 

@@ -86,7 +86,7 @@ fn build_run_variables_exposes_command_settings() {
         pr: None,
         agent: None,
         model: None,
-        branch: None,
+        branch: Some("feat/test-status-output".to_string()),
         dry_run: false,
         no_dashboard: false,
         port: 8400,
@@ -124,7 +124,7 @@ fn build_run_variables_exposes_command_settings() {
     );
     assert_eq!(
         variables.get("branch").map(String::as_str),
-        Some("feat/add-status-output")
+        Some("feat/test-status-output")
     );
     assert_eq!(
         variables.get("instruction_file").map(String::as_str),

@@ -1,7 +1,7 @@
 use forge::config::ForgeConfig;
 use forge::workspace::{
-    CleanOptions, InstructionFile, archive_instruction_file, build_instruction_file_name,
-    clean_workspace, create_instruction_file, list_instruction_files, resolve_instruction_file,
+    CleanOptions, InstructionFile, archive_instruction_file, clean_workspace,
+    create_instruction_file, list_instruction_files, resolve_instruction_file,
 };
 use std::fs;
 use std::path::Path;
@@ -9,31 +9,31 @@ use std::process::Command;
 use tempfile::tempdir;
 
 #[test]
-fn instruction_file_naming_uses_slug_timestamp_and_agent() {
-    let file_name = build_instruction_file_name(
-        "Add websocket support for API events",
-        "2026-03-31T1325",
-        "claude-code",
-    );
-
-    assert_eq!(
-        file_name,
-        "add-websocket-support-for-api-events.2026-03-31T1325.claude-code.md"
-    );
-}
-
-#[test]
 fn create_instruction_file_makes_unique_names_for_same_task() {
     let dir = tempdir().expect("tempdir");
     let config = ForgeConfig::default();
 
-    let first = create_instruction_file(dir.path(), &config, "Add websocket support", "codex")
-        .expect("create first instruction");
-    let second = create_instruction_file(dir.path(), &config, "Add websocket support", "codex")
-        .expect("create second instruction");
+    let first = create_instruction_file(
+        dir.path(),
+        &config,
+        "Add websocket support",
+        "feature-123",
+        "codex",
+    )
+    .expect("create first instruction");
+    let second = create_instruction_file(
+        dir.path(),
+        &config,
+        "Add websocket support",
+        "feature-123",
+        "codex",
+    )
+    .expect("create second instruction");
 
     assert_ne!(first.file_name, second.file_name);
+    assert!(first.file_name.starts_with("feature-123."));
     assert!(first.file_name.ends_with(".codex.md"));
+    assert!(second.file_name.starts_with("feature-123."));
     assert!(second.file_name.ends_with(".codex-2.md"));
 }
 
@@ -42,15 +42,21 @@ fn create_instruction_file_persists_task_text() {
     let dir = tempdir().expect("tempdir");
     let config = ForgeConfig::default();
 
-    let instruction =
-        create_instruction_file(dir.path(), &config, "Add websocket support", "codex")
-            .expect("create instruction");
+    let instruction = create_instruction_file(
+        dir.path(),
+        &config,
+        "Add websocket support",
+        "feature-123",
+        "codex",
+    )
+    .expect("create instruction");
 
     assert!(instruction.path.exists());
     assert_eq!(
         fs::read_to_string(instruction.path).expect("instruction content"),
         "Add websocket support"
     );
+    assert!(instruction.file_name.starts_with("feature-123."));
 }
 
 #[test]

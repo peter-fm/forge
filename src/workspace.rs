@@ -47,11 +47,12 @@ pub fn create_instruction_file(
     root: &Path,
     config: &ForgeConfig,
     task: &str,
+    slug: &str,
     agent: &str,
 ) -> Result<InstructionFile, ForgeError> {
     fs::create_dir_all(instructions_dir(root, config))?;
     let timestamp = local_timestamp("%Y-%m-%dT%H%M")?;
-    let file_name = next_instruction_file_name(root, config, task, &timestamp, agent)?;
+    let file_name = next_instruction_file_name(root, config, slug, &timestamp, agent)?;
     let path = instructions_dir(root, config).join(&file_name);
     fs::write(&path, task)?;
     let path_display = instruction_path_display(config, &file_name);
@@ -60,15 +61,6 @@ pub fn create_instruction_file(
         path,
         path_display,
     })
-}
-
-pub fn build_instruction_file_name(task: &str, timestamp: &str, agent: &str) -> String {
-    format!(
-        "{}.{}.{}.md",
-        slugify_instruction(task, 50),
-        timestamp,
-        sanitize_agent(agent)
-    )
 }
 
 pub fn resolve_instruction_file(
@@ -254,7 +246,7 @@ fn sanitize_agent(agent: &str) -> String {
     }
 }
 
-fn slugify_instruction(task: &str, max_len: usize) -> String {
+fn sanitize_instruction_slug(task: &str, max_len: usize) -> String {
     let mut slug = String::new();
     let mut last_dash = false;
     for ch in task.chars() {
@@ -293,11 +285,16 @@ fn local_timestamp(format: &str) -> Result<String, ForgeError> {
 fn next_instruction_file_name(
     root: &Path,
     config: &ForgeConfig,
-    task: &str,
+    slug: &str,
     timestamp: &str,
     agent: &str,
 ) -> Result<String, ForgeError> {
-    let base = build_instruction_file_name(task, timestamp, agent);
+    let base = format!(
+        "{}.{}.{}.md",
+        sanitize_instruction_slug(slug, 50),
+        timestamp,
+        sanitize_agent(agent)
+    );
     let base_path = instructions_dir(root, config).join(&base);
     if !base_path.exists() {
         return Ok(base);

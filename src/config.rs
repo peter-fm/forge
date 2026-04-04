@@ -1,8 +1,10 @@
 use crate::cli::Commands;
 use crate::error::ForgeError;
+use crate::summarize::{TaskSummary, summarize_task};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::fs;
+use std::hash::Hasher;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -173,6 +175,16 @@ pub fn build_run_variables(
     forge_root: &Path,
     date: &str,
 ) -> Result<BTreeMap<String, String>, ForgeError> {
+    build_run_variables_with_summarizer(config, command, forge_root, date, summarize_task)
+}
+
+fn build_run_variables_with_summarizer(
+    config: &ForgeConfig,
+    command: &Commands,
+    forge_root: &Path,
+    date: &str,
+    summarizer: fn(&str) -> Option<TaskSummary>,
+) -> Result<BTreeMap<String, String>, ForgeError> {
     match command {
         Commands::Run {
             blueprint_name,
@@ -243,20 +255,20 @@ pub fn build_run_variables(
             insert_if_some(&mut values, "target_agent", agent.clone());
             insert_if_some(&mut values, "target_model", model.clone());
 
+            let resolved_blueprint = resolve_blueprint_name(blueprint_name, blueprint);
+            let task_summary = if branch.is_none() {
+                task.as_deref().and_then(summarizer)
+            } else {
+                None
+            };
             let branch_value = branch.clone().unwrap_or_else(|| {
-                auto_branch_name(
-                    resolve_blueprint_name(blueprint_name, blueprint),
-                    task.as_deref(),
-                    issue.as_deref(),
-                    round.as_deref(),
-                    date,
-                )
+                resolve_branch_value(resolved_blueprint, task.as_deref(), task_summary.as_ref())
             });
-            values.insert("branch".to_string(), branch_value);
-
-            if let Some(task) = task {
-                values.insert("commit_message".to_string(), task.clone());
-            }
+            values.insert("branch".to_string(), branch_value.clone());
+            values.insert(
+                "commit_message".to_string(),
+                resolve_commit_message(task_summary.as_ref(), Some(branch_value.as_str())),
+            );
 
             for (key, value) in vars {
                 values.insert(key.clone(), value.clone());
@@ -273,19 +285,12 @@ pub fn build_run_variables(
 pub fn auto_branch_name(
     blueprint: &str,
     task: Option<&str>,
-    issue: Option<&str>,
-    round: Option<&str>,
-    date: &str,
+    _issue: Option<&str>,
+    _round: Option<&str>,
+    _date: &str,
 ) -> String {
-    match blueprint {
-        "code-review" => format!("refactor/code-review-{date}"),
-        "implement-feature" | "new-feature" => {
-            format!("feat/{}", slugify(task.unwrap_or("work"), 40))
-        }
-        "fix-bug" => format!("fix/{}", issue.unwrap_or("unknown")),
-        "red-team" => format!("red-team/round-{}", round.unwrap_or("1")),
-        _ => format!("forge/{blueprint}-{date}"),
-    }
+    let hash = task_hash7(task.unwrap_or(""));
+    branch_name_from_slug(blueprint, &hash)
 }
 
 pub fn resolve_blueprint_for_run(
@@ -351,30 +356,230 @@ fn expand_home(path: &str) -> Result<String, ForgeError> {
     Ok(path.to_string())
 }
 
-fn slugify(input: &str, max_len: usize) -> String {
-    let mut slug = String::new();
-    let mut last_dash = false;
-    for ch in input.chars() {
-        if ch.is_ascii_alphanumeric() {
-            slug.push(ch.to_ascii_lowercase());
-            last_dash = false;
-        } else if !last_dash && !slug.is_empty() {
-            slug.push('-');
-            last_dash = true;
-        }
-        if slug.len() >= max_len {
-            break;
-        }
+fn resolve_branch_value(
+    blueprint: &str,
+    task: Option<&str>,
+    summary: Option<&TaskSummary>,
+) -> String {
+    match summary {
+        Some(summary) => branch_name_from_slug(blueprint, &summary.branch_slug),
+        None => auto_branch_name(blueprint, task, None, None, ""),
+    }
+}
+
+fn resolve_commit_message(summary: Option<&TaskSummary>, branch: Option<&str>) -> String {
+    summary
+        .map(|summary| summary.commit_message.clone())
+        .or_else(|| branch.map(ToOwned::to_owned))
+        .unwrap_or_else(|| "chore: update code".to_string())
+}
+
+fn branch_name_from_slug(blueprint: &str, slug: &str) -> String {
+    match blueprint {
+        "implement-feature" | "new-feature" => format!("feat/{slug}"),
+        "fix-bug" => format!("fix/{slug}"),
+        _ => format!("work/{slug}"),
+    }
+}
+
+fn task_hash7(task: &str) -> String {
+    let mut hasher = Fnv1a64::default();
+    hasher.write(task.as_bytes());
+    format!("{:016x}", hasher.finish())[..7].to_string()
+}
+
+#[derive(Default)]
+struct Fnv1a64(u64);
+
+impl Hasher for Fnv1a64 {
+    fn finish(&self) -> u64 {
+        self.0
     }
 
-    slug.truncate(max_len);
-    while slug.ends_with('-') {
-        slug.pop();
+    fn write(&mut self, bytes: &[u8]) {
+        if self.0 == 0 {
+            self.0 = 0xcbf29ce484222325;
+        }
+        for byte in bytes {
+            self.0 ^= u64::from(*byte);
+            self.0 = self.0.wrapping_mul(0x100000001b3);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{auto_branch_name, build_run_variables_with_summarizer, load_forge_config_str};
+    use crate::cli::Commands;
+    use crate::summarize::TaskSummary;
+    use std::path::Path;
+
+    #[test]
+    fn build_run_variables_uses_ai_slug_for_branch_and_commit_message() {
+        fn summarizer(_: &str) -> Option<TaskSummary> {
+            Some(TaskSummary {
+                branch_slug: "add-admin-api".to_string(),
+                commit_message: "feat: add admin api".to_string(),
+            })
+        }
+
+        let config = load_forge_config_str("").expect("config should parse");
+        let command = Commands::Run {
+            blueprint_name: Some("new-feature".to_string()),
+            blueprint: None,
+            repo: None,
+            task: Some("Add Admin API".to_string()),
+            instruction: None,
+            issue: None,
+            round: None,
+            pr: None,
+            agent: None,
+            model: None,
+            branch: None,
+            dry_run: false,
+            no_dashboard: false,
+            port: 8400,
+            notify: Vec::new(),
+            verbose: false,
+            vars: Vec::new(),
+        };
+
+        let variables = build_run_variables_with_summarizer(
+            &config,
+            &command,
+            Path::new("/work/forge"),
+            "2026-04-04",
+            summarizer,
+        )
+        .expect("variables");
+
+        assert_eq!(
+            variables.get("branch").map(String::as_str),
+            Some("feat/add-admin-api")
+        );
+        assert_eq!(
+            variables.get("commit_message").map(String::as_str),
+            Some("feat: add admin api")
+        );
     }
 
-    if slug.is_empty() {
-        "work".to_string()
-    } else {
-        slug
+    #[test]
+    fn build_run_variables_falls_back_to_hashed_branch_and_branch_commit_message() {
+        fn summarizer(_: &str) -> Option<TaskSummary> {
+            None
+        }
+
+        let config = load_forge_config_str("").expect("config should parse");
+        let command = Commands::Run {
+            blueprint_name: Some("fix-bug".to_string()),
+            blueprint: None,
+            repo: None,
+            task: Some("Fix websocket reconnect timing".to_string()),
+            instruction: None,
+            issue: None,
+            round: None,
+            pr: None,
+            agent: None,
+            model: None,
+            branch: None,
+            dry_run: false,
+            no_dashboard: false,
+            port: 8400,
+            notify: Vec::new(),
+            verbose: false,
+            vars: Vec::new(),
+        };
+
+        let variables = build_run_variables_with_summarizer(
+            &config,
+            &command,
+            Path::new("/work/forge"),
+            "2026-04-04",
+            summarizer,
+        )
+        .expect("variables");
+
+        assert_eq!(
+            variables.get("branch").map(String::as_str),
+            Some("fix/0766bdf")
+        );
+        assert_eq!(
+            variables.get("commit_message").map(String::as_str),
+            Some("fix/0766bdf")
+        );
+    }
+
+    #[test]
+    fn build_run_variables_uses_explicit_branch_without_summarizing() {
+        fn summarizer(_: &str) -> Option<TaskSummary> {
+            panic!("explicit branches should bypass the AI summarizer")
+        }
+
+        let config = load_forge_config_str("").expect("config should parse");
+        let command = Commands::Run {
+            blueprint_name: Some("new-feature".to_string()),
+            blueprint: None,
+            repo: None,
+            task: Some("Add Admin API".to_string()),
+            instruction: None,
+            issue: None,
+            round: None,
+            pr: None,
+            agent: None,
+            model: None,
+            branch: Some("feat/custom-branch".to_string()),
+            dry_run: false,
+            no_dashboard: false,
+            port: 8400,
+            notify: Vec::new(),
+            verbose: false,
+            vars: Vec::new(),
+        };
+
+        let variables = build_run_variables_with_summarizer(
+            &config,
+            &command,
+            Path::new("/work/forge"),
+            "2026-04-04",
+            summarizer,
+        )
+        .expect("variables");
+
+        assert_eq!(
+            variables.get("branch").map(String::as_str),
+            Some("feat/custom-branch")
+        );
+        assert_eq!(
+            variables.get("commit_message").map(String::as_str),
+            Some("feat/custom-branch")
+        );
+    }
+
+    #[test]
+    fn auto_branch_name_uses_generic_hashed_prefixes() {
+        assert_eq!(
+            auto_branch_name(
+                "implement-feature",
+                Some("Add verbose flag to the command line"),
+                None,
+                None,
+                "2026-03-22",
+            ),
+            "feat/65455c0"
+        );
+        assert_eq!(
+            auto_branch_name(
+                "fix-bug",
+                Some("Repair websocket jitter"),
+                None,
+                None,
+                "2026-03-22"
+            ),
+            "fix/509ff7b"
+        );
+        assert_eq!(
+            auto_branch_name("lint", Some("Clean warnings"), None, None, "2026-03-22"),
+            "work/5a89a37"
+        );
     }
 }

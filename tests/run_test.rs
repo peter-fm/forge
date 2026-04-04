@@ -32,6 +32,8 @@ prompt = "Read {instruction_path}"
             ".forge/blueprints/demo.toml",
             "--task",
             "Add WebSocket support",
+            "--branch",
+            "feat/add-websocket-support",
             "--no-dashboard",
             "--dry-run",
         ])
@@ -126,6 +128,8 @@ prompt = "Read {instruction_path}"
             ".forge/blueprints/demo.toml",
             "--task",
             "Archive me",
+            "--branch",
+            "feat/archive-me",
             "--no-dashboard",
             "--dry-run",
         ])
@@ -166,6 +170,8 @@ command = "false"
             ".forge/blueprints/demo.toml",
             "--task",
             "Do not archive me",
+            "--branch",
+            "feat/do-not-archive-me",
             "--no-dashboard",
         ])
         .current_dir(dir.path())
@@ -177,6 +183,48 @@ command = "false"
     assert_eq!(files.len(), 1);
     assert!(files[0].starts_with("do-not-archive-me."));
     assert!(archive_file_names(dir.path().join(".forge/archive").as_path()).is_empty());
+}
+
+#[test]
+fn explicit_branch_uses_branch_leaf_for_instruction_file_slug() {
+    let dir = tempdir().expect("tempdir");
+    write_run_fixture(
+        dir.path(),
+        false,
+        r#"
+[blueprint]
+name = "demo"
+description = "x"
+
+[[step]]
+type = "agentic"
+name = "implement"
+agent = "{target_agent}"
+model = "{target_model}"
+prompt = "Read {instruction_path}"
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_forge"))
+        .args([
+            "run",
+            "--blueprint",
+            ".forge/blueprints/demo.toml",
+            "--task",
+            "Use explicit branch",
+            "--branch",
+            "fix/custom-instruction-slug",
+            "--no-dashboard",
+            "--dry-run",
+        ])
+        .current_dir(dir.path())
+        .output()
+        .expect("run forge");
+
+    assert!(output.status.success());
+    let files = instruction_file_names(dir.path().join(".forge/instructions").as_path());
+    assert_eq!(files.len(), 1);
+    assert!(files[0].starts_with("custom-instruction-slug."));
 }
 
 #[test]
@@ -252,9 +300,7 @@ command = "printf 'ran\\n'"
     assert_eq!(entries[0]["dry_run"], Value::Bool(false));
     assert_eq!(entries[1]["name"], "echo");
     assert_eq!(entries[1]["stdout"], "ran\n");
-    let step_log = entries[1]["log_file"]
-        .as_str()
-        .expect("step log path");
+    let step_log = entries[1]["log_file"].as_str().expect("step log path");
     assert!(step_log.starts_with(".forge/runs/run-"));
     assert_eq!(
         fs::read_to_string(dir.path().join(step_log)).expect("read step log"),
@@ -328,7 +374,10 @@ fn walk(root: std::path::PathBuf) -> Vec<std::path::PathBuf> {
     let mut stack = vec![root];
 
     while let Some(path) = stack.pop() {
-        for entry in fs::read_dir(path).expect("walk entries").filter_map(|entry| entry.ok()) {
+        for entry in fs::read_dir(path)
+            .expect("walk entries")
+            .filter_map(|entry| entry.ok())
+        {
             let entry_path = entry.path();
             if entry_path.is_dir() {
                 stack.push(entry_path);

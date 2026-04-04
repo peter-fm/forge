@@ -48,16 +48,20 @@ pub fn run_command(root: &Path, command: &Commands) -> Result<(), ForgeError> {
     let blueprint_path =
         resolve_run_blueprint_path(&blueprint_root, blueprint_name, blueprint, repo)?;
     let blueprint = parse_blueprint_file(&blueprint_path)?;
+    let mut variables = build_run_variables(&config, command, root, &date)?;
+    let instruction_slug =
+        resolve_instruction_file_slug(command, variables.get("branch").map(String::as_str));
     let instruction = resolve_run_instruction(
         root,
         &config,
         task.as_deref(),
         instruction.as_deref(),
         command,
+        instruction_slug.as_deref(),
     )?;
 
     let mut context = RunContext::new();
-    context.variables = build_run_variables(&config, command, root, &date)?;
+    context.variables = std::mem::take(&mut variables);
     context.dry_run = *dry_run;
     context.verbose = *verbose;
     context.instruction_file = instruction.as_ref().map(|file| file.file_name.clone());
@@ -258,6 +262,7 @@ fn resolve_run_instruction(
     task: Option<&str>,
     instruction: Option<&str>,
     command: &Commands,
+    instruction_slug: Option<&str>,
 ) -> Result<Option<InstructionFile>, ForgeError> {
     match (task, instruction) {
         (Some(_), Some(_)) => Err(ForgeError::message(
@@ -267,9 +272,31 @@ fn resolve_run_instruction(
             root,
             config,
             task,
+            instruction_slug.unwrap_or("work"),
             resolve_target_agent(config, command),
         )?)),
         (None, Some(instruction)) => Ok(Some(resolve_instruction_file(root, config, instruction)?)),
         (None, None) => Ok(None),
     }
+}
+
+fn resolve_instruction_file_slug(
+    command: &Commands,
+    resolved_branch: Option<&str>,
+) -> Option<String> {
+    let Commands::Run { task, .. } = command else {
+        return None;
+    };
+    if task.is_none() {
+        return None;
+    }
+
+    resolved_branch.map(|branch| {
+        branch
+            .rsplit('/')
+            .next()
+            .filter(|slug| !slug.is_empty())
+            .unwrap_or("work")
+            .to_string()
+    })
 }
