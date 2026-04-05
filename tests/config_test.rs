@@ -84,6 +84,8 @@ fn build_run_variables_exposes_command_settings() {
         issue: None,
         round: None,
         pr: None,
+        next: false,
+        latest: false,
         agent: None,
         model: None,
         branch: Some("feat/test-status-output".to_string()),

@@ -13,6 +13,7 @@ use crate::runner::{BlueprintLoader, Engine};
 use crate::workspace::{
     InstructionFile, archive_instruction_file, create_instruction_file, resolve_instruction_file,
 };
+use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 
@@ -49,6 +50,10 @@ pub fn run_command(root: &Path, command: &Commands) -> Result<(), ForgeError> {
         resolve_run_blueprint_path(&blueprint_root, blueprint_name, blueprint, repo)?;
     let blueprint = parse_blueprint_file(&blueprint_path)?;
     let mut variables = build_run_variables(&config, command, root, &date)?;
+    variables.insert("default_branch".to_string(), resolve_default_branch(root));
+    if let Some(pr) = resolve_pr_variable(root, command, &blueprint)? {
+        variables.insert("pr".to_string(), pr);
+    }
     let instruction_slug =
         resolve_instruction_file_slug(command, variables.get("branch").map(String::as_str));
     let instruction = resolve_run_instruction(
@@ -299,4 +304,216 @@ fn resolve_instruction_file_slug(
             .unwrap_or("work")
             .to_string()
     })
+}
+
+fn resolve_default_branch(root: &Path) -> String {
+    if let Some(remote_head) = git_output(
+        root,
+        &[
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            "refs/remotes/origin/HEAD",
+        ],
+    ) {
+        if let Some(branch) = parse_remote_head(&remote_head) {
+            return branch;
+        }
+    }
+
+    if let Some(current) = git_output(root, &["branch", "--show-current"]) {
+        let current = current.trim();
+        if !current.is_empty() {
+            return current.to_string();
+        }
+    }
+
+    if git_success(
+        root,
+        &["show-ref", "--verify", "--quiet", "refs/heads/main"],
+    ) {
+        return "main".to_string();
+    }
+    if git_success(
+        root,
+        &["show-ref", "--verify", "--quiet", "refs/heads/master"],
+    ) {
+        return "master".to_string();
+    }
+
+    "main".to_string()
+}
+
+fn parse_remote_head(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    Some(
+        trimmed
+            .strip_prefix("origin/")
+            .unwrap_or(trimmed)
+            .to_string(),
+    )
+}
+
+fn git_output(root: &Path, args: &[&str]) -> Option<String> {
+    let output = ProcessCommand::new("git")
+        .args(args)
+        .current_dir(root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+fn git_success(root: &Path, args: &[&str]) -> bool {
+    ProcessCommand::new("git")
+        .args(args)
+        .current_dir(root)
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PullRequestSelection {
+    Next,
+    Latest,
+}
+
+#[derive(Debug, Deserialize)]
+struct PullRequestNumber {
+    number: u64,
+}
+
+fn resolve_pr_variable(
+    root: &Path,
+    command: &Commands,
+    blueprint: &Blueprint,
+) -> Result<Option<String>, ForgeError> {
+    let Commands::Run {
+        pr, next, latest, ..
+    } = command
+    else {
+        return Ok(None);
+    };
+
+    let selector_count = usize::from(pr.is_some()) + usize::from(*next) + usize::from(*latest);
+    if selector_count > 1 {
+        return Err(ForgeError::message(
+            "use only one of --pr, --next, or --latest",
+        ));
+    }
+
+    if *next || *latest {
+        if blueprint.blueprint.name != "pr-review" {
+            return Err(ForgeError::message(
+                "--next and --latest are only supported when running the `pr-review` blueprint",
+            ));
+        }
+
+        let selection = if *next {
+            PullRequestSelection::Next
+        } else {
+            PullRequestSelection::Latest
+        };
+        let selected = resolve_open_pull_request_number(root, selection)?;
+        return Ok(Some(selected.to_string()));
+    }
+
+    if blueprint.blueprint.name == "pr-review" && pr.is_none() {
+        return Err(ForgeError::message(
+            "missing PR target: use --pr <number>, --next, or --latest",
+        ));
+    }
+
+    Ok(pr.clone())
+}
+
+fn resolve_open_pull_request_number(
+    root: &Path,
+    selection: PullRequestSelection,
+) -> Result<u64, ForgeError> {
+    let output = ProcessCommand::new("gh")
+        .arg("pr")
+        .arg("list")
+        .arg("--state")
+        .arg("open")
+        .arg("--limit")
+        .arg("1000")
+        .arg("--json")
+        .arg("number")
+        .current_dir(root)
+        .output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let detail = if stderr.is_empty() {
+            "unknown error".to_string()
+        } else {
+            stderr
+        };
+        return Err(ForgeError::message(format!(
+            "failed to query open pull requests via `gh pr list`: {detail}"
+        )));
+    }
+
+    let numbers = parse_pull_request_numbers(&output.stdout)?;
+    select_pull_request_number(&numbers, selection).ok_or_else(|| {
+        ForgeError::message("no open pull requests found for --next/--latest selection")
+    })
+}
+
+fn parse_pull_request_numbers(bytes: &[u8]) -> Result<Vec<u64>, ForgeError> {
+    let prs: Vec<PullRequestNumber> = serde_json::from_slice(bytes)?;
+    Ok(prs.into_iter().map(|pr| pr.number).collect())
+}
+
+fn select_pull_request_number(numbers: &[u64], selection: PullRequestSelection) -> Option<u64> {
+    match selection {
+        PullRequestSelection::Next => numbers.iter().min().copied(),
+        PullRequestSelection::Latest => numbers.iter().max().copied(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        PullRequestSelection, parse_pull_request_numbers, parse_remote_head,
+        select_pull_request_number,
+    };
+
+    #[test]
+    fn parse_pull_request_numbers_extracts_numbers() {
+        let numbers = parse_pull_request_numbers(br#"[{"number":4},{"number":5},{"number":6}]"#)
+            .expect("json should parse");
+        assert_eq!(numbers, vec![4, 5, 6]);
+    }
+
+    #[test]
+    fn select_pull_request_number_supports_next_and_latest() {
+        let numbers = vec![6, 4, 5];
+        assert_eq!(
+            select_pull_request_number(&numbers, PullRequestSelection::Next),
+            Some(4)
+        );
+        assert_eq!(
+            select_pull_request_number(&numbers, PullRequestSelection::Latest),
+            Some(6)
+        );
+    }
+
+    #[test]
+    fn parse_remote_head_strips_origin_prefix() {
+        assert_eq!(
+            parse_remote_head("origin/master\n").as_deref(),
+            Some("master")
+        );
+        assert_eq!(parse_remote_head("main").as_deref(), Some("main"));
+        assert_eq!(parse_remote_head(" \n"), None);
+    }
 }

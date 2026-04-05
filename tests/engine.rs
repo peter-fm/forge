@@ -777,6 +777,7 @@ fn dry_run_generated_pipeline() {
         ("target_repo_path".to_string(), "/tmp/shell".to_string()),
         ("target_agent".to_string(), "codex".to_string()),
         ("target_model".to_string(), "gpt-5.4".to_string()),
+        ("default_branch".to_string(), "main".to_string()),
         ("run_id".to_string(), "new-feature-a3f2".to_string()),
         (
             "instruction_file".to_string(),
@@ -821,6 +822,8 @@ fn repo_aliases_include_short_path_names() {
         issue: None,
         round: None,
         pr: None,
+        next: false,
+        latest: false,
         agent: None,
         model: None,
         branch: None,
@@ -903,6 +906,37 @@ fn cli_parses_notify_flag() {
     match cli.command {
         Commands::Run { notify, .. } => {
             assert_eq!(notify, vec!["openclaw".to_string(), "slack".to_string()]);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn cli_parses_pr_selection_flags() {
+    let cli = Cli::try_parse_from(["forge", "run", "pr-review", "--next"])
+        .expect("cli should accept --next");
+    match cli.command {
+        Commands::Run {
+            blueprint_name,
+            pr,
+            next,
+            latest,
+            ..
+        } => {
+            assert_eq!(blueprint_name.as_deref(), Some("pr-review"));
+            assert_eq!(pr, None);
+            assert!(next);
+            assert!(!latest);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+
+    let cli = Cli::try_parse_from(["forge", "run", "pr-review", "--latest"])
+        .expect("cli should accept --latest");
+    match cli.command {
+        Commands::Run { next, latest, .. } => {
+            assert!(!next);
+            assert!(latest);
         }
         other => panic!("unexpected command: {other:?}"),
     }
@@ -1315,6 +1349,8 @@ fn build_run_variables_applies_resolution_order() {
         issue: Some("42".to_string()),
         round: Some("5".to_string()),
         pr: None,
+        next: false,
+        latest: false,
         agent: Some("override-agent".to_string()),
         model: None,
         branch: Some("feat/add-verbose-flag".to_string()),

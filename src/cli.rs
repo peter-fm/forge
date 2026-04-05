@@ -33,6 +33,10 @@ pub enum Commands {
         #[arg(long)]
         pr: Option<String>,
         #[arg(long)]
+        next: bool,
+        #[arg(long)]
+        latest: bool,
+        #[arg(long)]
         agent: Option<String>,
         #[arg(long)]
         model: Option<String>,

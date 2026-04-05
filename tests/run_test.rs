@@ -260,6 +260,128 @@ fn generated_test_blueprint_runs_without_instruction_input() {
 }
 
 #[test]
+fn pr_review_next_uses_lowest_open_pull_request_number() {
+    let dir = tempdir().expect("tempdir");
+    write_run_fixture(
+        dir.path(),
+        false,
+        r#"
+[blueprint]
+name = "demo"
+description = "x"
+"#,
+    );
+    fs::write(
+        dir.path().join(".forge/blueprints/pr-review.toml"),
+        r#"
+[blueprint]
+name = "pr-review"
+description = "x"
+
+[[step]]
+type = "deterministic"
+name = "show-pr"
+command = "printf '{pr}\n'"
+"#
+        .trim_start(),
+    )
+    .expect("write pr-review blueprint");
+    let bin_dir = dir.path().join("bin");
+    fs::create_dir_all(&bin_dir).expect("create bin dir");
+    fs::write(
+        bin_dir.join("gh"),
+        "#!/bin/sh\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"list\" ]; then\n  printf '[{\"number\":4},{\"number\":5},{\"number\":6}]'\n  exit 0\nfi\necho \"unexpected gh command\" >&2\nexit 1\n",
+    )
+    .expect("write gh mock");
+    let chmod = Command::new("chmod")
+        .args(["+x", &bin_dir.join("gh").to_string_lossy()])
+        .status()
+        .expect("chmod gh mock");
+    assert!(chmod.success());
+
+    let path = std::env::var("PATH").unwrap_or_default();
+    let output = Command::new(env!("CARGO_BIN_EXE_forge"))
+        .args(["run", "pr-review", "--next", "--no-dashboard", "--dry-run"])
+        .current_dir(dir.path())
+        .env("PATH", format!("{}:{path}", bin_dir.to_string_lossy()))
+        .output()
+        .expect("run forge");
+
+    assert!(output.status.success(), "{output:?}");
+    let log_path = only_run_log(dir.path());
+    let log = fs::read_to_string(log_path).expect("read run log");
+    let entries = log
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).expect("jsonl entry"))
+        .collect::<Vec<_>>();
+    assert_eq!(entries[0]["variables"]["pr"], "4");
+}
+
+#[test]
+fn pr_review_latest_uses_highest_open_pull_request_number() {
+    let dir = tempdir().expect("tempdir");
+    write_run_fixture(
+        dir.path(),
+        false,
+        r#"
+[blueprint]
+name = "demo"
+description = "x"
+"#,
+    );
+    fs::write(
+        dir.path().join(".forge/blueprints/pr-review.toml"),
+        r#"
+[blueprint]
+name = "pr-review"
+description = "x"
+
+[[step]]
+type = "deterministic"
+name = "show-pr"
+command = "printf '{pr}\n'"
+"#
+        .trim_start(),
+    )
+    .expect("write pr-review blueprint");
+    let bin_dir = dir.path().join("bin");
+    fs::create_dir_all(&bin_dir).expect("create bin dir");
+    fs::write(
+        bin_dir.join("gh"),
+        "#!/bin/sh\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"list\" ]; then\n  printf '[{\"number\":4},{\"number\":5},{\"number\":6}]'\n  exit 0\nfi\necho \"unexpected gh command\" >&2\nexit 1\n",
+    )
+    .expect("write gh mock");
+    let chmod = Command::new("chmod")
+        .args(["+x", &bin_dir.join("gh").to_string_lossy()])
+        .status()
+        .expect("chmod gh mock");
+    assert!(chmod.success());
+
+    let path = std::env::var("PATH").unwrap_or_default();
+    let output = Command::new(env!("CARGO_BIN_EXE_forge"))
+        .args([
+            "run",
+            "pr-review",
+            "--latest",
+            "--no-dashboard",
+            "--dry-run",
+        ])
+        .current_dir(dir.path())
+        .env("PATH", format!("{}:{path}", bin_dir.to_string_lossy()))
+        .output()
+        .expect("run forge");
+
+    assert!(output.status.success(), "{output:?}");
+    let log_path = only_run_log(dir.path());
+    let log = fs::read_to_string(log_path).expect("read run log");
+    let entries = log
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).expect("jsonl entry"))
+        .collect::<Vec<_>>();
+    assert_eq!(entries[0]["variables"]["pr"], "6");
+}
+
+#[test]
 fn run_without_dry_run_logs_false_and_executes_steps() {
     let dir = tempdir().expect("tempdir");
     write_run_fixture(
@@ -312,6 +434,42 @@ command = "printf 'ran\\n'"
         fs::read_to_string(dir.path().join(step_log)).expect("read step log"),
         "ran\n"
     );
+}
+
+#[test]
+fn run_injects_default_branch_variable() {
+    let dir = tempdir().expect("tempdir");
+    write_run_fixture(
+        dir.path(),
+        false,
+        r#"
+[blueprint]
+name = "demo"
+description = "x"
+
+[[step]]
+type = "deterministic"
+name = "show-default-branch"
+command = "echo {default_branch}"
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_forge"))
+        .args([
+            "run",
+            "--blueprint",
+            ".forge/blueprints/demo.toml",
+            "--no-dashboard",
+            "--dry-run",
+            "--verbose",
+        ])
+        .current_dir(dir.path())
+        .output()
+        .expect("run forge");
+
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("echo main"));
 }
 
 fn write_run_fixture(root: &Path, auto_archive: bool, blueprint: &str) {

@@ -160,6 +160,8 @@ Options:
   --issue <id>          GitHub issue number
   --round <number>      Round number (e.g. for red-team)
   --pr <number>         PR number (e.g. for merge)
+  --next                For `pr-review`, select the lowest-numbered open PR
+  --latest              For `pr-review`, select the highest-numbered open PR
   --agent <name>        Override agent (codex | claude-code)
   --model <name>        Override model
   --branch <name>       Git branch name (auto-generated if omitted)
@@ -352,6 +354,10 @@ forge run new-feature \
 
 # Review and merge an open PR
 forge run pr-review --pr 12 --agent claude-code
+
+# Or auto-select from open PRs
+forge run pr-review --next
+forge run pr-review --latest
 ```
 
 ### Codex
@@ -384,10 +390,8 @@ Run `forge run <blueprint> --task "your task"` instead of making changes directl
 Multiple agents can work on different features simultaneously. Each `forge run` creates its own branch. When you're ready to merge:
 
 ```bash
-# Review and merge each PR in turn
-forge run pr-review --pr 10
-forge run pr-review --pr 11
-forge run pr-review --pr 12
+# Review and merge oldest open PR first
+forge run pr-review --next
 ```
 
 The pr-review blueprint handles merge conflicts from earlier merges automatically.
