@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 
 const GENERATED_HEADER: &str = "# forge-generated\n";
-const DEFAULT_BRANCH_EXPR: &str = "$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's:refs/remotes/origin/::' || echo main)";
+const DEFAULT_BRANCH_EXPR: &str = "$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's:^origin/::' | grep -E '.' || git branch --show-current 2>/dev/null | grep -E '.' || echo main)";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InitOptions {

@@ -71,7 +71,7 @@ fn init_creates_forge_layout_and_gitignore_entries() {
     assert!(blueprint.contains("Read your task instructions from {instruction_path}."));
     assert!(blueprint.contains("name = \"docs-check\""));
     assert!(blueprint.contains(
-        "git diff $(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's:refs/remotes/origin/::' || echo main)...HEAD --name-only"
+        "git diff $(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's:^origin/::' | grep -E '.' || git branch --show-current 2>/dev/null | grep -E '.' || echo main)...HEAD --name-only"
     ));
     assert!(blueprint.contains("allow_failure = true"));
     assert!(blueprint.contains("name = \"write-pr\""));
