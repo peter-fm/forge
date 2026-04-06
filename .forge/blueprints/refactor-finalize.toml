@@ -1,60 +1,17 @@
 # forge-generated
 [blueprint]
-name = "new-feature"
-description = "Implement a new feature with lint and test gates"
+name = "refactor-finalize"
+description = "Finalize a multi-phase refactor and open the pull request"
 
 [[step]]
 type = "deterministic"
-name = "clean-tree"
-command = "git diff --quiet || exit 1"
+name = "checkout-branch"
+command = "git checkout {refactor_branch}"
 
 [[step]]
 type = "deterministic"
-name = "create-branch"
-command = "git checkout -b {branch}"
-
-[[step]]
-type = "agentic"
-name = "implement"
-agent = "{target_agent}"
-model = "{target_model}"
-prompt = """Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Implement the feature described there. Make sure to add tests for new functionality."""
-max_retries = 2
-
-[[step]]
-type = "deterministic"
-name = "commit-backstop"
-command = "git add -A && git diff --cached --quiet || git commit -m \"{commit_message}\""
-
-[[step]]
-type = "deterministic"
-name = "lint"
-command = "cargo clippy -- -D warnings"
-allow_failure = true
-
-[[step]]
-type = "agentic"
-name = "fix-lint"
-agent = "{target_agent}"
-model = "{target_model}"
-prompt = """The linter reported errors. Run the lint command again to see the failures, then fix them. Only fix lint issues, do not change functionality."""
-condition = "lint.exit_code != 0"
-max_retries = 2
-
-[[step]]
-type = "deterministic"
-name = "test"
+name = "final-test"
 command = "cargo test"
-allow_failure = true
-
-[[step]]
-type = "agentic"
-name = "fix-tests"
-agent = "{target_agent}"
-model = "{target_model}"
-prompt = """The tests failed. Run the test command again to see the specific failures, then fix them. Only fix test failures, do not change functionality."""
-condition = "test.exit_code != 0"
-max_retries = 2
 
 [[step]]
 type = "agentic"
@@ -87,7 +44,7 @@ command = "git add -A && git diff --cached --quiet || git commit -m \"docs: upda
 [[step]]
 type = "deterministic"
 name = "push-branch"
-command = "git push origin {branch}"
+command = "git push origin {refactor_branch}"
 
 [[step]]
 type = "agentic"
@@ -110,7 +67,7 @@ Do not create the PR yourself. Only write the contents for `.forge/pr-body.md`."
 [[step]]
 type = "deterministic"
 name = "create-pr"
-command = "gh pr create --base {default_branch} --head {branch} --body-file .forge/pr-body.md --title \"{commit_message}\""
+command = "gh pr create --base {default_branch} --head {refactor_branch} --body-file .forge/pr-body.md --title \"{commit_message}\""
 
 [[step]]
 type = "deterministic"

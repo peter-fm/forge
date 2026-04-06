@@ -29,11 +29,31 @@ command = "git add -A && git diff --cached --quiet || git commit -m \"{commit_me
 type = "deterministic"
 name = "lint"
 command = "cargo clippy -- -D warnings"
+allow_failure = true
+
+[[step]]
+type = "agentic"
+name = "fix-lint"
+agent = "{target_agent}"
+model = "{target_model}"
+prompt = """The linter reported errors. Run the lint command again to see the failures, then fix them. Only fix lint issues, do not change functionality."""
+condition = "lint.exit_code != 0"
+max_retries = 2
 
 [[step]]
 type = "deterministic"
 name = "test"
 command = "cargo test"
+allow_failure = true
+
+[[step]]
+type = "agentic"
+name = "fix-tests"
+agent = "{target_agent}"
+model = "{target_model}"
+prompt = """The tests failed. Run the test command again to see the specific failures, then fix them. Only fix test failures, do not change functionality."""
+condition = "test.exit_code != 0"
+max_retries = 2
 
 [[step]]
 type = "agentic"
@@ -42,7 +62,7 @@ agent = "{target_agent}"
 model = "{target_model}"
 prompt = """Review the changes you just made and check if the project documentation needs updating.
 
-1. Run `git diff main...HEAD --name-only` to see what files changed.
+1. Run `git diff {default_branch}...HEAD --name-only` to see what files changed.
 2. Read README.md (if it exists) and check if any of these are now outdated:
    - Feature descriptions that no longer match the code
    - CLI usage examples that have changed
@@ -75,7 +95,7 @@ agent = "{target_agent}"
 model = "{target_model}"
 prompt = """You have just completed work on this branch. Now write up a pull request description.
 
-1. Run `git diff main...HEAD` to see everything you changed.
+1. Run `git diff {default_branch}...HEAD` to see everything you changed.
 2. Read the original task instructions at {instruction_path}.
 3. Write a PR description covering:
    - What problem this solves (from the task brief)
@@ -89,9 +109,10 @@ Do not create the PR yourself. Only write the contents for `.forge/pr-body.md`."
 [[step]]
 type = "deterministic"
 name = "create-pr"
-command = "gh pr create --base main --head {branch} --body-file .forge/pr-body.md --title \"{commit_message}\""
+command = "gh pr create --base {default_branch} --head {branch} --body-file .forge/pr-body.md --title \"{commit_message}\""
 
 [[step]]
 type = "deterministic"
 name = "checkout-main"
-command = "git checkout main"
+command = "git checkout {default_branch}"
+

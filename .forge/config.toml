@@ -15,7 +15,6 @@ model = "gpt-5.4"
 [instructions]
 directory = "instructions"
 gitignore = true
-agents_md = "AGENTS.md"
 
 [workspace]
 instructions = "instructions"

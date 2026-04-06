@@ -1,43 +1,25 @@
+# forge-generated
 [blueprint]
 name = "code-review"
-description = "Review recent changes for correctness, style, and test coverage"
+description = "Review an existing pull request and post feedback via GitHub"
 
 [[step]]
 type = "deterministic"
-name = "diff"
-command = "git diff origin/master..HEAD --stat && echo '---' && git diff origin/master..HEAD"
-sets = "diff_output"
+name = "checkout-pr"
+command = "gh pr checkout {pr}"
 
 [[step]]
 type = "agentic"
 name = "review"
-agent = "claude-code"
-model = "claude-opus-4-20250514"
-prompt = """You are reviewing changes to the forge codebase — a Rust CLI tool that provides development guardrails for AI coding agents.
+agent = "{target_agent}"
+model = "{target_model}"
+prompt = """Review pull request #{pr} carefully.
 
-Review the recent commits (git log and git diff from origin/master).
+1. Read the PR details: `gh pr view {pr} --json title,body,files,commits,comments,reviews`.
+2. Read the diff against the default branch: `git diff {default_branch}...HEAD`.
+3. Review for bugs, regressions, missing tests, style inconsistencies, and design issues.
+4. Post your review with `gh pr review {pr}`:
+   - If you found issues, leave a comment review that explains the problems clearly.
+   - If the PR looks good, approve it with a short rationale.
 
-Check for:
-1. **Correctness** — does the logic do what it claims? Edge cases?
-2. **Test coverage** — are new code paths tested? Missing tests?
-3. **Style** — consistent with existing patterns? Idiomatic Rust?
-4. **Safety** — any unwrap() that should be ? or expect()? Error handling gaps?
-5. **API design** — public interfaces clean? Breaking changes documented?
-6. **Performance** — unnecessary allocations? O(n²) where O(n) would do?
-
-Output a structured review:
-- List issues found (severity: critical/warning/nit)
-- Suggest specific fixes with code snippets
-- Note what's done well
-
-Do NOT make changes — review only."""
-
-[[step]]
-type = "deterministic"
-name = "lint"
-command = "cargo clippy -- -D warnings"
-
-[[step]]
-type = "gate"
-name = "test"
-command = "cargo test"
+Be specific and reference files or behaviors when calling out problems."""

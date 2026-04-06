@@ -1,0 +1,37 @@
+# forge-generated
+[blueprint]
+name = "refactor-phase"
+description = "Execute a single implementation phase of a multi-phase refactor"
+
+[[step]]
+type = "deterministic"
+name = "checkout-or-create-branch"
+command = "git checkout {refactor_branch} 2>/dev/null || git checkout -b {refactor_branch}"
+
+[[step]]
+type = "agentic"
+name = "implement-phase"
+agent = "{target_agent}"
+model = "{target_model}"
+prompt = """Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Implement this refactor phase without changing intended behavior outside the scoped phase."""
+
+[[step]]
+type = "deterministic"
+name = "commit-backstop"
+command = "git add -A && git diff --cached --quiet || git commit -m \"{commit_message}\""
+
+[[step]]
+type = "deterministic"
+name = "test"
+command = "cargo test"
+allow_failure = true
+
+[[step]]
+type = "agentic"
+name = "fix-tests"
+agent = "{target_agent}"
+model = "{target_model}"
+prompt = """The tests failed. Run the test command again to see the specific failures, then fix them. Only fix test failures, do not change functionality."""
+condition = "test.exit_code != 0"
+max_retries = 2
+

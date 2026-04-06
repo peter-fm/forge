@@ -1,7 +1,7 @@
 # forge-generated
 [blueprint]
 name = "pr-review"
-description = "Senior engineer review of a PR — review implementation, merge to main, run final tests"
+description = "Senior engineer review of a PR — review implementation, merge to the default branch, run final tests"
 
 [[step]]
 type = "agentic"
@@ -15,7 +15,7 @@ prompt = """You are a senior engineer reviewing PR #{pr}.
 
 2. Check out the branch and read the full diff:
    gh pr checkout {pr}
-   git diff main...HEAD
+   git diff {default_branch}...HEAD
 
 3. Review the implementation from the standpoint of the system as a whole:
    - Does the design make sense in the context of the broader codebase?
@@ -38,14 +38,14 @@ type = "agentic"
 name = "merge"
 agent = "codex"
 model = "gpt-5.4"
-prompt = """Merge PR #{pr} to main.
+prompt = """Merge PR #{pr} to the default branch.
 
 1. First, try a clean merge:
    gh pr merge {pr} --squash --auto
 
 2. If there are merge conflicts:
    - Check out the PR branch
-   - Merge main into it: git merge main
+   - Merge the default branch into it: git merge {default_branch}
    - Resolve conflicts carefully — understand both sides before choosing
    - Preserve the intent of both the PR and the conflicting changes
    - Commit the resolution and push
@@ -58,7 +58,7 @@ max_retries = 1
 [[step]]
 type = "deterministic"
 name = "checkout-main"
-command = "git checkout main && git pull"
+command = "git checkout {default_branch} && git pull"
 
 [[step]]
 type = "deterministic"
