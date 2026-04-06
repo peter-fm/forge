@@ -88,7 +88,7 @@ This creates:
 └── runs/                    # JSONL run logs + status snapshots (gitignored)
 ```
 
-Forge also adds gitignore rules for instructions, archive, and runs, and creates a starter `AGENTS.md` if one doesn't exist.
+Forge also adds gitignore rules for instructions, archive, and runs.
 
 ### 2. Run a Blueprint
 

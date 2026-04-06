@@ -51,7 +51,7 @@ fn init_creates_forge_layout_and_gitignore_entries() {
     assert!(dir.path().join(".forge/instructions/.gitkeep").exists());
     assert!(dir.path().join(".forge/archive").exists());
     assert!(dir.path().join(".forge/.gitignore").exists());
-    assert!(dir.path().join("AGENTS.md").exists());
+    assert!(!dir.path().join("AGENTS.md").exists());
 
     let gitignore = fs::read_to_string(dir.path().join(".gitignore")).expect("read gitignore");
     assert!(gitignore.contains(".forge/instructions/*"));

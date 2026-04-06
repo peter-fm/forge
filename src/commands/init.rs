@@ -17,7 +17,6 @@ pub fn init_project(root: &Path, options: &InitOptions) -> Result<DetectedProjec
     let detected = detect_project(root, options.project_type)?;
     write_generated_files(root, &detected, options.force)?;
     ensure_instructions_gitignore(root)?;
-    ensure_agents_md(root)?;
     handle_stale_instruction_files(root)?;
     Ok(detected)
 }
@@ -501,16 +500,6 @@ pub fn ensure_instructions_gitignore(root: &Path) -> Result<(), ForgeError> {
         fs::write(path, updated)?;
     }
 
-    Ok(())
-}
-
-pub fn ensure_agents_md(root: &Path) -> Result<(), ForgeError> {
-    let path = root.join("AGENTS.md");
-    if path.exists() {
-        return Ok(());
-    }
-    let content = "# AGENTS\n\nThis repository uses `.forge/` for generated blueprints and task instructions.\n";
-    fs::write(path, content)?;
     Ok(())
 }
 
