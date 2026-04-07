@@ -1,6 +1,6 @@
 use crate::cli::Commands;
 use crate::error::ForgeError;
-use crate::summarize::{TaskSummary, summarize_task};
+use crate::summarize::{summarize_task, TaskSummary};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::fs;
@@ -13,6 +13,7 @@ pub struct ForgeConfig {
     pub commands: CommandConfig,
     pub instructions: InstructionsConfig,
     pub workspace: WorkspaceConfig,
+    pub dashboard: DashboardConfig,
     pub defaults: Defaults,
     pub repos: BTreeMap<String, RepoConfig>,
     pub routing: Vec<RoutingRule>,
@@ -47,6 +48,11 @@ pub struct WorkspaceConfig {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct DashboardConfig {
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct Defaults {
     pub agent: Option<String>,
     pub model: Option<String>,
@@ -78,6 +84,8 @@ struct RawForgeConfig {
     instructions: InstructionsConfig,
     #[serde(default)]
     workspace: WorkspaceConfig,
+    #[serde(default)]
+    dashboard: DashboardConfig,
     #[serde(default)]
     agent: AgentConfig,
     #[serde(default)]
@@ -133,6 +141,7 @@ pub fn load_forge_config_str(input: &str) -> Result<ForgeConfig, ForgeError> {
         commands: raw.commands,
         instructions: raw.instructions,
         workspace: raw.workspace,
+        dashboard: raw.dashboard,
         defaults: Defaults {
             agent: raw.agent.default.or(raw.defaults.agent),
             model: raw.agent.model.or(raw.defaults.model),
@@ -157,6 +166,10 @@ impl ForgeConfig {
 
     pub fn workspace_auto_archive(&self) -> bool {
         self.workspace.auto_archive.unwrap_or(true)
+    }
+
+    pub fn dashboard_enabled(&self) -> bool {
+        self.dashboard.enabled.unwrap_or(false)
     }
 }
 
@@ -298,11 +311,9 @@ pub fn resolve_blueprint_for_run(
     blueprint: &str,
     repo: Option<&str>,
 ) -> Result<PathBuf, ForgeError> {
-    let mut candidates = vec![
-        blueprint_root
-            .join("common")
-            .join(format!("{blueprint}.toml")),
-    ];
+    let mut candidates = vec![blueprint_root
+        .join("common")
+        .join(format!("{blueprint}.toml"))];
     if let Some(repo) = repo {
         candidates.push(blueprint_root.join(repo).join(format!("{blueprint}.toml")));
     }

@@ -54,6 +54,7 @@ fn loads_dot_forge_config_sections() {
     );
     assert_eq!(config.workspace.archive.as_deref(), Some("archive"));
     assert_eq!(config.workspace.auto_archive, Some(true));
+    assert_eq!(config.dashboard.enabled, None);
 }
 
 #[test]
@@ -136,4 +137,19 @@ fn build_run_variables_exposes_command_settings() {
         variables.get("instruction_path").map(String::as_str),
         Some(".forge/instructions/current.md")
     );
+}
+
+#[test]
+fn dashboard_enabled_defaults_to_false_and_parses_when_present() {
+    let default_config = load_forge_config_str("").expect("config should parse");
+    assert!(!default_config.dashboard_enabled());
+
+    let enabled_config = load_forge_config_str(
+        r#"
+        [dashboard]
+        enabled = true
+        "#,
+    )
+    .expect("config should parse");
+    assert!(enabled_config.dashboard_enabled());
 }

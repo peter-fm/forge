@@ -1,4 +1,4 @@
-use crate::detect::{DetectedProject, ProjectType, detect_project};
+use crate::detect::{detect_project, DetectedProject, ProjectType};
 use crate::error::ForgeError;
 use crate::workspace::{ensure_workspace_layout, stale_root_instruction_files};
 use std::fs;
@@ -97,6 +97,9 @@ pub fn render_config(detected: &DetectedProject) -> String {
     output.push_str("instructions = \"instructions\"\n");
     output.push_str("archive = \"archive\"\n");
     output.push_str("auto_archive = true\n");
+    output.push_str("\n[dashboard]\n");
+    output.push_str("# Frontend hasn't shipped yet, so the dashboard is opt-in for now.\n");
+    output.push_str("enabled = false\n");
     output
 }
 

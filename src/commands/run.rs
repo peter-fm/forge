@@ -11,7 +11,7 @@ use crate::notify::{build_partial_summary, format_run_summary, resolve_backends}
 use crate::parser::parse_blueprint_file;
 use crate::runner::{BlueprintLoader, Engine};
 use crate::workspace::{
-    InstructionFile, archive_instruction_file, create_instruction_file, resolve_instruction_file,
+    archive_instruction_file, create_instruction_file, resolve_instruction_file, InstructionFile,
 };
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -107,7 +107,7 @@ pub fn run_command(root: &Path, command: &Commands) -> Result<(), ForgeError> {
         blueprint_root,
         dashboard: None,
     };
-    let mut dashboard = if *no_dashboard {
+    let mut dashboard = if *no_dashboard || !config.dashboard_enabled() {
         None
     } else {
         Some(launch_dashboard(&blueprint, *port)?)
@@ -483,8 +483,8 @@ fn select_pull_request_number(numbers: &[u64], selection: PullRequestSelection) 
 #[cfg(test)]
 mod tests {
     use super::{
-        PullRequestSelection, parse_pull_request_numbers, parse_remote_head,
-        select_pull_request_number,
+        parse_pull_request_numbers, parse_remote_head, select_pull_request_number,
+        PullRequestSelection,
     };
 
     #[test]

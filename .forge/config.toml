@@ -20,3 +20,7 @@ gitignore = true
 instructions = "instructions"
 archive = "archive"
 auto_archive = true
+
+[dashboard]
+# Frontend hasn't shipped yet, so the dashboard is opt-in for now.
+enabled = false
