@@ -126,17 +126,26 @@ fn build_codex_command(
     env: &BTreeMap<String, String>,
 ) -> Result<String, ForgeError> {
     let repo_path = infer_repo_path(step_name, prompt, env)?;
-    let codex_flags = env.get("FORGE_CODEX_FLAGS").cloned().unwrap_or_else(|| {
-        // Pass --json so `codex exec` emits JSONL events in real time; spawn_reader
-        // flushes them to the step log as they arrive, making long agentic steps observable.
-        "--yolo --json".to_string()
-    });
+    // Top-level flags go BEFORE the `exec` subcommand (e.g. `--yolo`).
+    let top_flags = env
+        .get("FORGE_CODEX_FLAGS")
+        .cloned()
+        .unwrap_or_else(|| "--yolo".to_string());
+    // Exec-level flags go AFTER `exec`. `--json` MUST live here — codex rejects
+    // `--json` at the top level. Streaming JSONL events is why we're here:
+    // spawn_reader flushes chunks to the step log as they arrive, making
+    // long-running agentic phases observable instead of silent.
+    let exec_flags = env
+        .get("FORGE_CODEX_EXEC_FLAGS")
+        .cloned()
+        .unwrap_or_else(|| "--json".to_string());
 
     Ok(format!(
-        "cd {} && codex {} --model {} exec {}",
+        "cd {} && codex {} --model {} exec {} {}",
         shell_quote(&repo_path),
-        codex_flags,
+        top_flags,
         shell_quote(model),
+        exec_flags,
         shell_quote(prompt)
     ))
 }
@@ -332,25 +341,57 @@ mod tests {
 
     #[test]
     fn codex_command_defaults_to_json_streaming() {
+        // With no env overrides, --json must be at the EXEC level (after `exec`),
+        // not at the top level. codex's argument parser rejects top-level --json.
         let env = BTreeMap::from([("PWD".to_string(), "/repo".to_string())]);
 
-        let command = build_codex_command("implement", "gpt-5.4", "fix it", &env)
-            .expect("codex command");
+        let command =
+            build_codex_command("implement", "gpt-5.4", "fix it", &env).expect("codex command");
 
-        assert!(command.contains("codex --yolo --json --model 'gpt-5.4' exec 'fix it'"));
+        assert!(
+            command.contains("codex --yolo --model 'gpt-5.4' exec --json 'fix it'"),
+            "unexpected command: {command}"
+        );
     }
 
     #[test]
-    fn codex_command_respects_opt_out_flags() {
+    fn codex_command_respects_top_level_opt_out() {
+        // Setting FORGE_CODEX_FLAGS overrides top-level flags (e.g. drop --yolo).
+        // --json at exec level is unaffected — still streaming by default.
         let env = BTreeMap::from([
-            ("FORGE_CODEX_FLAGS".to_string(), "--yolo".to_string()),
+            (
+                "FORGE_CODEX_FLAGS".to_string(),
+                "--ask-for-approval=never".to_string(),
+            ),
             ("PWD".to_string(), "/repo".to_string()),
         ]);
 
-        let command = build_codex_command("implement", "gpt-5.4", "fix it", &env)
-            .expect("codex command");
+        let command =
+            build_codex_command("implement", "gpt-5.4", "fix it", &env).expect("codex command");
 
-        assert!(command.contains("codex --yolo --model 'gpt-5.4' exec 'fix it'"));
-        assert!(!command.contains("--json"));
+        assert!(
+            command
+                .contains("codex --ask-for-approval=never --model 'gpt-5.4' exec --json 'fix it'"),
+            "unexpected command: {command}"
+        );
+    }
+
+    #[test]
+    fn codex_command_respects_exec_opt_out() {
+        // Setting FORGE_CODEX_EXEC_FLAGS="" drops --json, restoring the old
+        // buffered behaviour for users who want it.
+        let env = BTreeMap::from([
+            ("FORGE_CODEX_EXEC_FLAGS".to_string(), String::new()),
+            ("PWD".to_string(), "/repo".to_string()),
+        ]);
+
+        let command =
+            build_codex_command("implement", "gpt-5.4", "fix it", &env).expect("codex command");
+
+        assert!(!command.contains("--json"), "unexpected command: {command}");
+        assert!(
+            command.contains("codex --yolo --model 'gpt-5.4' exec  'fix it'"),
+            "unexpected command: {command}"
+        );
     }
 }

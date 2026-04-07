@@ -263,7 +263,7 @@ allow_failure = true
 ### Agents
 
 Built-in support for:
-- **Codex** (`agent = "codex"`) — runs with `--yolo --json` by default so step logs stream JSONL progress in real time; set `FORGE_CODEX_FLAGS="--yolo"` to opt out
+- **Codex** (`agent = "codex"`) — runs with top-level `--yolo` and exec-level `--json` by default so step logs stream JSONL progress in real time. Override via `FORGE_CODEX_FLAGS` (top-level flags, default `--yolo`) or `FORGE_CODEX_EXEC_FLAGS` (exec-level flags, default `--json`). Set `FORGE_CODEX_EXEC_FLAGS=""` to restore the old buffered behaviour.
 - **Claude Code** (`agent = "claude-code"`) — runs with `--print --permission-mode bypassPermissions`
 
 ### Variables
