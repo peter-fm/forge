@@ -1,9 +1,14 @@
 use crate::error::ForgeError;
 use crate::runner::{ExecutionOutput, Runtime};
+use nix::pty::{Winsize, openpty};
+use nix::unistd::{close, dup2};
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
+use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
+use std::os::fd::AsRawFd;
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -45,45 +50,73 @@ fn run_shell(
     env: &BTreeMap<String, String>,
     log_path: Option<&Path>,
 ) -> Result<ExecutionOutput, ForgeError> {
+    let pty = openpty(
+        Some(&Winsize {
+            ws_row: 24,
+            ws_col: 80,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        }),
+        None,
+    )
+    .map_err(io::Error::from)?;
+    let master_fd = pty.master.as_raw_fd();
+    let slave_fd = pty.slave.as_raw_fd();
+    let stdin_file = File::open("/dev/null")?;
+    let stdin_fd = stdin_file.as_raw_fd();
     let mut process = Command::new("bash");
-    let mut child = apply_env(&mut process, env)
+    let child = apply_env(&mut process, env);
+    if !env.contains_key("TERM") {
+        child.env("TERM", "xterm-256color");
+    }
+    unsafe {
+        child.pre_exec(move || {
+            dup2(stdin_fd, 0).map_err(io::Error::from)?;
+            dup2(slave_fd, 1).map_err(io::Error::from)?;
+            dup2(slave_fd, 2).map_err(io::Error::from)?;
+            close(master_fd).map_err(io::Error::from)?;
+            if slave_fd > 2 {
+                close(slave_fd).map_err(io::Error::from)?;
+            }
+            if stdin_fd > 2 {
+                close(stdin_fd).map_err(io::Error::from)?;
+            }
+            Ok(())
+        });
+    }
+    let mut child = child
         .arg("-lc")
         .arg(command)
-        // Close stdin so child processes that read from stdin (notably
-        // `codex exec`, which appends piped stdin as an extra <stdin> block)
-        // see EOF immediately and proceed instead of blocking forever waiting
-        // for input that never comes. Without this, any agentic step inheriting
-        // stdin from forge's parent (e.g. an mcp_terminal background process)
-        // hangs silently until killed.
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .spawn()?;
 
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| ForgeError::message("failed to capture stdout"))?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| ForgeError::message("failed to capture stderr"))?;
+    drop(pty.slave);
+    drop(stdin_file);
     let sink = match log_path {
         Some(path) => Some(Arc::new(Mutex::new(
             OpenOptions::new().create(true).append(true).open(path)?,
         ))),
         None => None,
     };
-    let stdout_handle = spawn_reader(stdout, sink.clone());
-    let stderr_handle = spawn_reader(stderr, sink);
+    let output_handle = spawn_reader(File::from(pty.master), sink);
     let status = child.wait()?;
-    let stdout = join_reader(stdout_handle)?;
-    let stderr = join_reader(stderr_handle)?;
-
+    let stdout = output_handle
+        .join()
+        .map_err(|_| ForgeError::message("failed to join process output reader"))?
+        .map_err(ForgeError::from)?;
+    if let Some(path) = log_path {
+        if let Ok(raw) = std::fs::read(path) {
+            let normalized = String::from_utf8_lossy(&raw).replace("\r\n", "\n");
+            std::fs::write(path, normalized)?;
+        }
+    }
     Ok(ExecutionOutput {
         exit_code: status.code().unwrap_or(1),
-        stdout: String::from_utf8_lossy(&stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&stderr).into_owned(),
+        // PTYs expose a single terminal stream, so stdout and stderr are merged.
+        stdout: String::from_utf8_lossy(&stdout).replace("\r\n", "\n"),
+        stderr: String::new(),
     })
 }
 
@@ -169,7 +202,12 @@ where
         let mut chunk = [0_u8; 4096];
 
         loop {
-            let read = reader.read(&mut chunk)?;
+            let read = match reader.read(&mut chunk) {
+                Ok(read) => read,
+                // PTY masters report EIO after the slave closes; treat that as EOF.
+                Err(err) if err.raw_os_error() == Some(5) => break,
+                Err(err) => return Err(err),
+            };
             if read == 0 {
                 break;
             }
@@ -186,13 +224,6 @@ where
 
         Ok(bytes)
     })
-}
-
-fn join_reader(handle: thread::JoinHandle<io::Result<Vec<u8>>>) -> Result<Vec<u8>, ForgeError> {
-    handle
-        .join()
-        .map_err(|_| ForgeError::message("failed to join process output reader"))?
-        .map_err(ForgeError::from)
 }
 
 fn infer_repo_path(
@@ -297,9 +328,13 @@ fn shell_quote(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_codex_command, infer_repo_path};
+    use super::{build_codex_command, infer_repo_path, run_shell};
     use std::collections::BTreeMap;
     use std::fs;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::thread;
+    use std::time::Duration;
     use tempfile::tempdir;
 
     #[test]
@@ -400,5 +435,44 @@ mod tests {
             command.contains("codex --yolo --model 'gpt-5.4' exec  'fix it'"),
             "unexpected command: {command}"
         );
+    }
+
+    #[test]
+    fn run_shell_streams_output_to_log_while_running() {
+        let dir = tempdir().expect("tempdir");
+        let log_path = dir.path().join("step.log");
+        let done = Arc::new(AtomicBool::new(false));
+        let saw_growth = Arc::new(AtomicBool::new(false));
+        let poll_done = Arc::clone(&done);
+        let poll_growth = Arc::clone(&saw_growth);
+        let poll_path = log_path.clone();
+        let poller = thread::spawn(move || {
+            let mut last_len = 0;
+            while !poll_done.load(Ordering::Relaxed) {
+                let len = fs::metadata(&poll_path).map(|meta| meta.len()).unwrap_or(0);
+                if len > last_len {
+                    poll_growth.store(true, Ordering::Relaxed);
+                    last_len = len;
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+        });
+
+        let output = run_shell(
+            "for i in 1 2 3; do echo line$i; sleep 0.2; done",
+            &BTreeMap::new(),
+            Some(&log_path),
+        )
+        .expect("run shell");
+
+        done.store(true, Ordering::Relaxed);
+        poller.join().expect("poller");
+
+        assert!(saw_growth.load(Ordering::Relaxed), "log never grew mid-run");
+        assert_eq!(output.exit_code, 0);
+        assert!(output.stdout.contains("line1"), "missing line1: {}", output.stdout);
+        assert!(output.stdout.contains("line2"), "missing line2: {}", output.stdout);
+        assert!(output.stdout.contains("line3"), "missing line3: {}", output.stdout);
+        assert!(output.stderr.is_empty(), "stderr should be empty for PTY output");
     }
 }
