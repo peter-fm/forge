@@ -263,7 +263,7 @@ allow_failure = true
 ### Agents
 
 Built-in support for:
-- **Codex** (`agent = "codex"`) — runs in tmux, polls for completion
+- **Codex** (`agent = "codex"`) — runs with `--yolo --json` by default so step logs stream JSONL progress in real time; set `FORGE_CODEX_FLAGS="--yolo"` to opt out
 - **Claude Code** (`agent = "claude-code"`) — runs with `--print --permission-mode bypassPermissions`
 
 ### Variables

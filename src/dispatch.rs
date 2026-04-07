@@ -105,17 +105,7 @@ fn run_codex(
     log_path: Option<&Path>,
 ) -> Result<ExecutionOutput, ForgeError> {
     let repo_path = infer_repo_path(step_name, prompt, env)?;
-    let codex_flags = env
-        .get("FORGE_CODEX_FLAGS")
-        .cloned()
-        .unwrap_or_else(|| "--yolo".to_string());
-    let command = format!(
-        "cd {} && codex {} --model {} exec {}",
-        shell_quote(&repo_path),
-        codex_flags,
-        shell_quote(model),
-        shell_quote(prompt)
-    );
+    let command = build_codex_command(step_name, model, prompt, env)?;
     let _ = run_shell(&command, env, log_path)?;
 
     let diff = run_shell(
@@ -127,6 +117,28 @@ fn run_codex(
         None,
     )?;
     Ok(diff)
+}
+
+fn build_codex_command(
+    step_name: &str,
+    model: &str,
+    prompt: &str,
+    env: &BTreeMap<String, String>,
+) -> Result<String, ForgeError> {
+    let repo_path = infer_repo_path(step_name, prompt, env)?;
+    let codex_flags = env.get("FORGE_CODEX_FLAGS").cloned().unwrap_or_else(|| {
+        // Pass --json so `codex exec` emits JSONL events in real time; spawn_reader
+        // flushes them to the step log as they arrive, making long agentic steps observable.
+        "--yolo --json".to_string()
+    });
+
+    Ok(format!(
+        "cd {} && codex {} --model {} exec {}",
+        shell_quote(&repo_path),
+        codex_flags,
+        shell_quote(model),
+        shell_quote(prompt)
+    ))
 }
 
 fn spawn_reader<R>(
@@ -269,7 +281,7 @@ fn shell_quote(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::infer_repo_path;
+    use super::{build_codex_command, infer_repo_path};
     use std::collections::BTreeMap;
     use std::fs;
     use tempfile::tempdir;
@@ -316,5 +328,29 @@ mod tests {
             .expect("repo path");
 
         assert_eq!(repo_path, "/tmp/worktree");
+    }
+
+    #[test]
+    fn codex_command_defaults_to_json_streaming() {
+        let env = BTreeMap::from([("PWD".to_string(), "/repo".to_string())]);
+
+        let command = build_codex_command("implement", "gpt-5.4", "fix it", &env)
+            .expect("codex command");
+
+        assert!(command.contains("codex --yolo --json --model 'gpt-5.4' exec 'fix it'"));
+    }
+
+    #[test]
+    fn codex_command_respects_opt_out_flags() {
+        let env = BTreeMap::from([
+            ("FORGE_CODEX_FLAGS".to_string(), "--yolo".to_string()),
+            ("PWD".to_string(), "/repo".to_string()),
+        ]);
+
+        let command = build_codex_command("implement", "gpt-5.4", "fix it", &env)
+            .expect("codex command");
+
+        assert!(command.contains("codex --yolo --model 'gpt-5.4' exec 'fix it'"));
+        assert!(!command.contains("--json"));
     }
 }
