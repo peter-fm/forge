@@ -49,6 +49,13 @@ fn run_shell(
     let mut child = apply_env(&mut process, env)
         .arg("-lc")
         .arg(command)
+        // Close stdin so child processes that read from stdin (notably
+        // `codex exec`, which appends piped stdin as an extra <stdin> block)
+        // see EOF immediately and proceed instead of blocking forever waiting
+        // for input that never comes. Without this, any agentic step inheriting
+        // stdin from forge's parent (e.g. an mcp_terminal background process)
+        // hangs silently until killed.
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
