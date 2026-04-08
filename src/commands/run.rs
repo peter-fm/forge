@@ -11,7 +11,7 @@ use crate::notify::{build_partial_summary, format_run_summary, resolve_backends}
 use crate::parser::parse_blueprint_file;
 use crate::runner::{BlueprintLoader, Engine};
 use crate::workspace::{
-    archive_instruction_file, create_instruction_file, resolve_instruction_file, InstructionFile,
+    InstructionFile, archive_instruction_file, create_instruction_file, resolve_instruction_file,
 };
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -483,8 +483,8 @@ fn select_pull_request_number(numbers: &[u64], selection: PullRequestSelection) 
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_pull_request_numbers, parse_remote_head, select_pull_request_number,
-        PullRequestSelection,
+        PullRequestSelection, parse_pull_request_numbers, parse_remote_head,
+        select_pull_request_number,
     };
 
     #[test]

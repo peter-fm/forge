@@ -1,6 +1,6 @@
 use crate::cli::Commands;
 use crate::error::ForgeError;
-use crate::summarize::{summarize_task, TaskSummary};
+use crate::summarize::{TaskSummary, summarize_task};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::fs;
@@ -311,9 +311,11 @@ pub fn resolve_blueprint_for_run(
     blueprint: &str,
     repo: Option<&str>,
 ) -> Result<PathBuf, ForgeError> {
-    let mut candidates = vec![blueprint_root
-        .join("common")
-        .join(format!("{blueprint}.toml"))];
+    let mut candidates = vec![
+        blueprint_root
+            .join("common")
+            .join(format!("{blueprint}.toml")),
+    ];
     if let Some(repo) = repo {
         candidates.push(blueprint_root.join(repo).join(format!("{blueprint}.toml")));
     }

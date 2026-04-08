@@ -470,9 +470,24 @@ mod tests {
 
         assert!(saw_growth.load(Ordering::Relaxed), "log never grew mid-run");
         assert_eq!(output.exit_code, 0);
-        assert!(output.stdout.contains("line1"), "missing line1: {}", output.stdout);
-        assert!(output.stdout.contains("line2"), "missing line2: {}", output.stdout);
-        assert!(output.stdout.contains("line3"), "missing line3: {}", output.stdout);
-        assert!(output.stderr.is_empty(), "stderr should be empty for PTY output");
+        assert!(
+            output.stdout.contains("line1"),
+            "missing line1: {}",
+            output.stdout
+        );
+        assert!(
+            output.stdout.contains("line2"),
+            "missing line2: {}",
+            output.stdout
+        );
+        assert!(
+            output.stdout.contains("line3"),
+            "missing line3: {}",
+            output.stdout
+        );
+        assert!(
+            output.stderr.is_empty(),
+            "stderr should be empty for PTY output"
+        );
     }
 }
