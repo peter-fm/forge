@@ -219,26 +219,25 @@ fn detect_commands(
     ci_hints: &CiHints,
 ) -> ProjectCommands {
     match project_type {
-        ProjectType::Rust => ProjectCommands {
-            test: Some(
-                ci_hints
-                    .test
-                    .clone()
-                    .unwrap_or_else(|| "cargo test".to_string()),
-            ),
-            lint: Some(
-                ci_hints
-                    .lint
-                    .clone()
-                    .unwrap_or_else(|| "cargo clippy -- -D warnings".to_string()),
-            ),
-            build: Some(
-                ci_hints
-                    .build
-                    .clone()
-                    .unwrap_or_else(|| "cargo build".to_string()),
-            ),
-        },
+        ProjectType::Rust => {
+            ProjectCommands {
+                test: Some(
+                    ci_hints
+                        .test
+                        .clone()
+                        .unwrap_or_else(|| "cargo test".to_string()),
+                ),
+                lint: Some(ci_hints.lint.clone().unwrap_or_else(|| {
+                    "cargo fmt --check && cargo clippy -- -D warnings".to_string()
+                })),
+                build: Some(
+                    ci_hints
+                        .build
+                        .clone()
+                        .unwrap_or_else(|| "cargo build".to_string()),
+                ),
+            }
+        }
         ProjectType::Go => ProjectCommands {
             test: Some(
                 ci_hints

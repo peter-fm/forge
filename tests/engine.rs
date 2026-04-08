@@ -156,9 +156,15 @@ fn parses_generated_refactor_phase_blueprint() {
             "checkout-or-create-branch",
             "implement-phase",
             "commit-backstop",
+            "lint",
+            "fix-lint",
             "test",
             "fix-tests",
         ],
+    );
+    assert!(
+        blueprint.steps.iter().any(|step| step.name == "fix-lint"
+            && step.condition.as_deref() == Some("lint.exit_code != 0"))
     );
     assert!(
         blueprint.steps.iter().any(|step| step.name == "fix-tests"
@@ -177,6 +183,7 @@ fn parses_generated_refactor_finalize_blueprint() {
         &blueprint,
         &[
             "checkout-branch",
+            "final-lint",
             "final-test",
             "docs-check",
             "docs-commit-backstop",

@@ -99,10 +99,19 @@ fn init_creates_forge_layout_and_gitignore_entries() {
     assert!(refactor_phase.contains("name = \"checkout-or-create-branch\""));
     assert!(refactor_phase.contains("name = \"implement-phase\""));
     assert!(refactor_phase.contains("name = \"commit-backstop\""));
+    assert!(refactor_phase.contains("name = \"lint\""));
+    assert!(refactor_phase.contains("name = \"fix-lint\""));
+    assert!(refactor_phase.contains("condition = \"lint.exit_code != 0\""));
     assert!(refactor_phase.contains("name = \"test\""));
     assert!(refactor_phase.contains("allow_failure = true"));
     assert!(refactor_phase.contains("name = \"fix-tests\""));
     assert!(refactor_phase.contains("condition = \"test.exit_code != 0\""));
+
+    let refactor_finalize =
+        fs::read_to_string(dir.path().join(".forge/blueprints/refactor-finalize.toml"))
+            .expect("read refactor-finalize blueprint");
+    assert!(refactor_finalize.contains("name = \"final-lint\""));
+    assert!(refactor_finalize.contains("name = \"final-test\""));
 
     for branching in ["new-feature", "fix-bug", "refactor"] {
         let blueprint = fs::read_to_string(

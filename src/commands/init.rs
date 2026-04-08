@@ -1,4 +1,4 @@
-use crate::detect::{detect_project, DetectedProject, ProjectType};
+use crate::detect::{DetectedProject, ProjectType, detect_project};
 use crate::error::ForgeError;
 use crate::workspace::{ensure_workspace_layout, stale_root_instruction_files};
 use std::fs;
@@ -345,6 +345,22 @@ pub fn render_refactor_phase_blueprint(detected: &DetectedProject) -> String {
     );
     append_command_step(
         &mut output,
+        "lint",
+        detected
+            .commands
+            .lint
+            .as_deref()
+            .unwrap_or("{lint_command}"),
+        true,
+    );
+    append_agentic_retry_step(
+        &mut output,
+        "fix-lint",
+        "The linter reported errors. Run the lint command again to see the failures, then fix them. Only fix lint issues, do not change functionality.",
+        "lint.exit_code != 0",
+    );
+    append_command_step(
+        &mut output,
         "test",
         detected
             .commands
@@ -373,6 +389,16 @@ pub fn render_refactor_finalize_blueprint(detected: &DetectedProject) -> String 
         &mut output,
         "checkout-branch",
         "git checkout {refactor_branch}",
+        false,
+    );
+    append_command_step(
+        &mut output,
+        "final-lint",
+        detected
+            .commands
+            .lint
+            .as_deref()
+            .unwrap_or("{lint_command}"),
         false,
     );
     append_command_step(
