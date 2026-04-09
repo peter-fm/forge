@@ -109,6 +109,24 @@ The practical implications:
 
 If you are reading source to understand the runtime model, start at `src/dispatch.rs` and look for `openpty` and `spawn_reader`. There is no tmux code to find.
 
+### Gotcha: PTY inheritance and interactive tools
+
+The PTY that forge allocates for the agent is inherited by every descendant process the agent spawns — not just the agent itself, but `git`, `cargo`, `ssh`, `apt`, and anything else the agent shells out to. Unix tools auto-detect a terminal on their stdout and switch to interactive mode when they see one. In a forge run that is a problem: there is no human on the other end of the PTY, so anything that asks for input will sit waiting forever.
+
+The canonical failure mode is `git diff` with long output. `git` sees a TTY and pipes into `less`, which reads from its controlling terminal's stdin expecting a human keypress. No keypress ever comes. The step log stops growing. The phase hangs until someone kills the `less` process by hand. This actually happened on a deskjob phase 1 run and cost ~15 minutes before it was noticed.
+
+Other tools with the same failure mode: `sudo` prompting for a password, `git` prompting for credentials on a private remote, `apt` / `dpkg` bringing up debconf, `man` paging through `less` or `most`.
+
+Forge now sets a hardened environment on the agent spawn site (`src/dispatch.rs::hardened_env_for_agent`) that propagates to every descendant:
+
+- `GIT_PAGER=cat` — disables git's internal pager. This is the override that fixes the `git diff` → `less` hang.
+- `PAGER=cat` — general pager fallback used by `man`, `systemctl`, and many others.
+- `MANPAGER=cat` — explicit man-page pager override, belt and braces with `PAGER`.
+- `GIT_TERMINAL_PROMPT=0` — makes git credential prompts fail fast instead of blocking.
+- `DEBIAN_FRONTEND=noninteractive` — silences debconf / apt interactive prompts.
+
+Notably absent: `TERM=dumb` (would break the agent's own TUI rendering) and `NO_COLOR=1` (makes step logs uglier for no real benefit). The parent environment is inherited as normal — only these specific variables are overridden.
+
 ## Auto-archive
 
 If the workspace config has `[workspace] auto_archive = true` (forge init's default), then on a successful run the instruction file is moved from `.forge/instructions/<name>.md` to `.forge/archive/<name>.md`. On a failed run the file stays in place so you can edit it and re-run.

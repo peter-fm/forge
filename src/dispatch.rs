@@ -69,6 +69,17 @@ fn run_shell(
     if !env.contains_key("TERM") {
         child.env("TERM", "xterm-256color");
     }
+    // Disable TTY-interactive behaviour in every descendant process.
+    // The PTY we provide so the agent can render its TUI is inherited
+    // by grandchildren (git, cargo, ssh, apt). Tools that auto-detect
+    // a terminal will switch to interactive mode — e.g. `git diff` pipes
+    // into `less`, which then blocks forever waiting for user input.
+    // These env vars force pagers to `cat` and fail fast on prompts.
+    // Applied AFTER the caller's env so they always win, even if the
+    // caller set a conflicting value by mistake.
+    for (key, value) in hardened_env_for_agent() {
+        child.env(key, value);
+    }
     unsafe {
         child.pre_exec(move || {
             dup2(stdin_fd, 0).map_err(io::Error::from)?;
@@ -322,6 +333,29 @@ fn apply_env<'a>(command: &'a mut Command, env: &BTreeMap<String, String>) -> &'
     command
 }
 
+/// Env overrides that disable TTY-interactive behaviour in descendant processes.
+///
+/// See the caller in `run_shell` for the full rationale. In short: the agent
+/// child runs under a PTY so its TUI renders correctly, and every grandchild
+/// (git, cargo, ssh, apt) inherits that PTY. These overrides force pagers to
+/// `cat` and make credential / debconf prompts fail fast instead of blocking
+/// forever on empty stdin.
+const fn hardened_env_for_agent() -> &'static [(&'static str, &'static str)] {
+    &[
+        // Kills git's pager. `git diff` with long output pipes into `less`,
+        // which sits on empty stdin forever — this is the one that bit us.
+        ("GIT_PAGER", "cat"),
+        // General pager fallback (man, systemctl, etc).
+        ("PAGER", "cat"),
+        // Explicit man pager override — belt and braces.
+        ("MANPAGER", "cat"),
+        // Makes git credential prompts fail fast instead of blocking.
+        ("GIT_TERMINAL_PROMPT", "0"),
+        // Silences debconf / apt interactive prompts.
+        ("DEBIAN_FRONTEND", "noninteractive"),
+    ]
+}
+
 fn shell_quote(input: &str) -> String {
     format!("'{}'", input.replace('\'', "'\"'\"'"))
 }
@@ -434,6 +468,48 @@ mod tests {
         assert!(
             command.contains("codex --yolo --model 'gpt-5.4' exec  'fix it'"),
             "unexpected command: {command}"
+        );
+    }
+
+    #[test]
+    fn run_shell_applies_hardened_env_to_children() {
+        // The spawn site in run_shell injects a hardened env that disables
+        // TTY-interactive behaviour in every descendant. Verify each override
+        // actually reaches the child — regression guard against someone
+        // dropping the call or the caller env accidentally shadowing it.
+        let output = run_shell(
+            "printf 'GIT_PAGER=%s\\nPAGER=%s\\nMANPAGER=%s\\nGIT_TERMINAL_PROMPT=%s\\nDEBIAN_FRONTEND=%s\\n' \
+             \"$GIT_PAGER\" \"$PAGER\" \"$MANPAGER\" \"$GIT_TERMINAL_PROMPT\" \"$DEBIAN_FRONTEND\"",
+            &BTreeMap::new(),
+            None,
+        )
+        .expect("run shell");
+
+        assert_eq!(output.exit_code, 0, "stdout: {}", output.stdout);
+        assert!(
+            output.stdout.contains("GIT_PAGER=cat"),
+            "missing GIT_PAGER=cat: {}",
+            output.stdout
+        );
+        assert!(
+            output.stdout.contains("PAGER=cat"),
+            "missing PAGER=cat: {}",
+            output.stdout
+        );
+        assert!(
+            output.stdout.contains("MANPAGER=cat"),
+            "missing MANPAGER=cat: {}",
+            output.stdout
+        );
+        assert!(
+            output.stdout.contains("GIT_TERMINAL_PROMPT=0"),
+            "missing GIT_TERMINAL_PROMPT=0: {}",
+            output.stdout
+        );
+        assert!(
+            output.stdout.contains("DEBIAN_FRONTEND=noninteractive"),
+            "missing DEBIAN_FRONTEND=noninteractive: {}",
+            output.stdout
         );
     }
 
