@@ -120,6 +120,8 @@ On success, the instruction file is automatically moved to `.forge/archive/`. On
 
 Use `--task` or `--instruction`, not both.
 
+For architectural / foundational phases driven by the `refactor-phase` blueprint, see [docs/designing-phase-instructions.md](docs/designing-phase-instructions.md) for the recommended problem-focused brief shape.
+
 ### 3. Check Status and Clean Up
 
 ```bash
@@ -445,7 +447,7 @@ forge/
 │   ├── dashboard/
 │   │   └── mod.rs          # local run dashboard server and status API
 │   ├── workspace.rs        # instruction file creation, archival, and cleanup
-│   ├── dispatch.rs         # agent dispatch (Codex via tmux, Claude Code via --print)
+│   ├── dispatch.rs         # agent dispatch — raw PTY (nix::pty::openpty) with a spawn_reader thread streaming chunks to the step log in real time. No tmux.
 │   ├── condition.rs        # conditional expression evaluation (==, !=, &&, ||)
 │   ├── vars.rs             # {variable} substitution
 │   ├── parser.rs           # TOML blueprint parsing + validation
