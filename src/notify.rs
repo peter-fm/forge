@@ -72,6 +72,7 @@ pub fn build_partial_summary(step_names: &[String], recorded_steps: &[StepResult
             steps.push(result.clone());
         } else {
             steps.push(StepResult {
+                step_id: name.clone(),
                 name: name.clone(),
                 step_type: StepType::Deterministic,
                 status: StepStatus::Pending,
@@ -79,6 +80,7 @@ pub fn build_partial_summary(step_names: &[String], recorded_steps: &[StepResult
                 stdout: String::new(),
                 stderr: String::new(),
                 attempts: 0,
+                agent_session_id: None,
                 log_file: None,
             });
         }

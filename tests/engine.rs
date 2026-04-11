@@ -271,8 +271,9 @@ fn rejects_missing_variables() {
 fn exposes_step_output_variables() {
     let mut context = RunContext::new();
     context.step_results.insert(
-        "lint".to_string(),
+        "step-0001".to_string(),
         StepResult {
+            step_id: "step-0001".to_string(),
             name: "lint".to_string(),
             step_type: StepType::Deterministic,
             status: StepStatus::Succeeded,
@@ -280,6 +281,7 @@ fn exposes_step_output_variables() {
             stdout: "clippy clean".to_string(),
             stderr: String::new(),
             attempts: 1,
+            agent_session_id: None,
             log_file: None,
         },
     );
@@ -477,7 +479,8 @@ fn sub_blueprint_records_parent_step_result() {
 
     let parent = context
         .step_results
-        .get("lint-core")
+        .values()
+        .find(|result| result.name == "lint-core")
         .expect("parent result should be recorded");
     assert_eq!(parent.status, StepStatus::Succeeded);
     assert_eq!(parent.exit_code, 0);
@@ -508,7 +511,8 @@ fn sub_blueprint_parent_result_reflects_child_failure() {
 
     let parent = context
         .step_results
-        .get("lint-core")
+        .values()
+        .find(|result| result.name == "lint-core")
         .expect("parent result should be recorded");
     assert_eq!(parent.status, StepStatus::Failed);
     assert_eq!(parent.exit_code, 7);
@@ -1016,6 +1020,7 @@ fn openclaw_command_string_is_correct() {
 
 fn step_result(name: &str, status: StepStatus) -> StepResult {
     StepResult {
+        step_id: format!("id-{name}"),
         name: name.to_string(),
         step_type: StepType::Deterministic,
         status,
@@ -1023,6 +1028,7 @@ fn step_result(name: &str, status: StepStatus) -> StepResult {
         stdout: String::new(),
         stderr: String::new(),
         attempts: 1,
+        agent_session_id: None,
         log_file: None,
     }
 }

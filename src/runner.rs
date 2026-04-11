@@ -2,8 +2,10 @@ use crate::dashboard::{DashboardObserver, StepStatus as DashboardStepStatus};
 use crate::error::ForgeError;
 use crate::logger::{RunLogger, StepLog};
 use crate::model::{Blueprint, RunContext, RunSummary, Step, StepResult, StepStatus, StepType};
+use crate::run_id::session_uuid;
 use crate::run_status;
 use crate::{condition, vars};
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -93,12 +95,12 @@ where
         context: &mut RunContext,
     ) -> Result<RunSummary, ForgeError> {
         let is_root = context.blueprint_stack.len() == 1;
-        let mut summary_steps = Vec::new();
-        let mut index = 0;
+        let (mut summary_steps, mut index) = resume_state(blueprint, context, is_root)?;
 
         while index < blueprint.steps.len() {
             let step = &blueprint.steps[index];
             if !should_run(step, context)? {
+                let step_id = scoped_step_id(context, index);
                 if is_root {
                     self.finish_dashboard_step(
                         index,
@@ -109,6 +111,7 @@ where
                     );
                 }
                 let result = StepResult {
+                    step_id,
                     name: step.name.clone(),
                     step_type: step.step_type.clone(),
                     status: StepStatus::Skipped,
@@ -116,6 +119,7 @@ where
                     stdout: String::new(),
                     stderr: String::new(),
                     attempts: 0,
+                    agent_session_id: None,
                     log_file: self.create_empty_step_log(&step.name)?,
                 };
                 self.record_result(context, &mut summary_steps, result)?;
@@ -124,21 +128,22 @@ where
                 continue;
             }
 
+            let step_id = scoped_step_id(context, index);
             context
                 .step_started_at
-                .entry(step.name.clone())
+                .entry(step_id.clone())
                 .or_insert(now_secs()?);
             let started_at = Instant::now();
             print_step_started(&step.name);
             if is_root {
                 self.start_dashboard_step(index, step);
             }
-            self.write_status_snapshot(blueprint, context, Some(&step.name), "running")?;
+            self.write_status_snapshot(blueprint, context, Some(&step_id), "running")?;
 
             if step.step_type == StepType::Agentic && step.max_retries.unwrap_or(0) > 0 {
-                let retry_target = self.determine_retry_target(blueprint, index);
+                let retry_target = self.determine_retry_target(blueprint, context, index);
                 let (agent_result, retry_result, consumed_next) =
-                    self.run_agentic_with_retries(step, retry_target.as_ref(), context)?;
+                    self.run_agentic_with_retries(step, &step_id, retry_target.as_ref(), context)?;
                 let (overall_status, overall_exit_code) =
                     agentic_step_outcome(&agent_result, retry_result.as_ref());
                 print_step_finished(
@@ -193,7 +198,7 @@ where
             if matches!(step.step_type, StepType::Blueprint | StepType::Gate)
                 && step.blueprint.is_some()
             {
-                let results = self.run_sub_blueprint(step, blueprint, context)?;
+                let results = self.run_sub_blueprint(step, &step_id, blueprint, context)?;
                 let parent_result = results.last().cloned().ok_or_else(|| {
                     ForgeError::message(format!(
                         "sub-blueprint step `{}` produced no results",
@@ -232,7 +237,7 @@ where
                 continue;
             }
 
-            let result = self.run_single_step(step, context)?;
+            let result = self.run_single_step(step, &step_id, context)?;
             print_step_finished(
                 &step.name,
                 step_display_exit_code(&result.status, result.exit_code),
@@ -291,20 +296,23 @@ where
     fn run_single_step(
         &mut self,
         step: &Step,
+        step_id: &str,
         context: &mut RunContext,
     ) -> Result<StepResult, ForgeError> {
         let step_log = self.logger.create_step_log(&step.name)?;
-        let env = resolve_env(step, context)?;
         let variables = vars::build_variable_scope(context);
+        let mut agent_runtime = None;
 
         let execution = match step.step_type {
             StepType::Deterministic | StepType::Conditional | StepType::Gate => {
+                let env = resolve_env(step, context)?;
                 let command = step.command.as_deref().ok_or_else(|| {
                     ForgeError::message(format!("step `{}` is missing a command", step.name))
                 })?;
                 let command = vars::substitute_text(command, &variables)?;
                 if context.dry_run {
                     let result = StepResult {
+                        step_id: step_id.to_string(),
                         name: step.name.clone(),
                         step_type: step.step_type.clone(),
                         status: StepStatus::Succeeded,
@@ -312,6 +320,7 @@ where
                         stdout: command,
                         stderr: String::new(),
                         attempts: 1,
+                        agent_session_id: None,
                         log_file: step_log.as_ref().map(|log| log.relative_path.clone()),
                     };
                     write_step_log(step_log.as_ref(), &result.stdout, &result.stderr)?;
@@ -322,6 +331,7 @@ where
                     .run_command(&step.name, &command, &env, step_log_path(&step_log))?
             }
             StepType::Agentic => {
+                let mut env = resolve_env(step, context)?;
                 let agent = vars::substitute_text(
                     step.agent
                         .as_deref()
@@ -340,8 +350,11 @@ where
                         .ok_or_else(|| ForgeError::message("missing prompt"))?,
                     &variables,
                 )?;
+                configure_agent_env(&mut env, step_id, &agent, context);
+                agent_runtime = Some((agent.clone(), env.clone()));
                 if context.dry_run {
                     let result = StepResult {
+                        step_id: step_id.to_string(),
                         name: step.name.clone(),
                         step_type: step.step_type.clone(),
                         status: StepStatus::Succeeded,
@@ -349,6 +362,7 @@ where
                         stdout: prompt,
                         stderr: format!("agent={agent} model={model}"),
                         attempts: 1,
+                        agent_session_id: agent_session_id_for_step(&agent, &env, None),
                         log_file: step_log.as_ref().map(|log| log.relative_path.clone()),
                     };
                     write_step_log(step_log.as_ref(), &result.stdout, &result.stderr)?;
@@ -379,6 +393,7 @@ where
         };
 
         let result = StepResult {
+            step_id: step_id.to_string(),
             name: step.name.clone(),
             step_type: step.step_type.clone(),
             status: if succeeded {
@@ -390,6 +405,9 @@ where
             stdout: execution.stdout,
             stderr: execution.stderr,
             attempts: 1,
+            agent_session_id: agent_runtime.as_ref().and_then(|(agent, env)| {
+                agent_session_id_for_step(agent, env, step_log_path(&step_log))
+            }),
             log_file: step_log.map(|log| log.relative_path),
         };
 
@@ -400,6 +418,7 @@ where
     fn run_sub_blueprint(
         &mut self,
         step: &Step,
+        step_id: &str,
         parent: &Blueprint,
         context: &mut RunContext,
     ) -> Result<Vec<StepResult>, ForgeError> {
@@ -424,14 +443,17 @@ where
         let child_step_names = child
             .steps
             .iter()
-            .map(|child_step| child_step.name.clone())
+            .enumerate()
+            .map(|(index, _child_step)| child_step_id(step_id, index))
             .collect::<Vec<_>>();
+        context.execution_scope.push(step_id.to_string());
         let mut results = match self.run_blueprint(&child, context) {
             Ok(summary) => summary.steps,
             Err(error) => {
+                context.execution_scope.pop();
                 let partial_results = child_step_names
                     .iter()
-                    .filter_map(|name| context.step_results.get(name).cloned())
+                    .filter_map(|id| context.step_results.get(id).cloned())
                     .collect::<Vec<_>>();
                 if partial_results.is_empty() {
                     return Err(error);
@@ -439,33 +461,47 @@ where
                 partial_results
             }
         };
+        if context
+            .execution_scope
+            .last()
+            .is_some_and(|scope| scope == step_id)
+        {
+            context.execution_scope.pop();
+        }
 
-        if !results.iter().any(|result| result.name == step.name) {
-            let parent_result = synthesize_parent_result(step, &results);
+        if !results.iter().any(|result| result.step_id == step_id) {
+            let parent_result = synthesize_parent_result(step, step_id, &results);
             apply_sets(step, &parent_result, context);
             context
                 .step_results
-                .insert(parent_result.name.clone(), parent_result.clone());
+                .insert(parent_result.step_id.clone(), parent_result.clone());
             results.push(parent_result);
         }
 
         Ok(results)
     }
 
-    fn determine_retry_target(&self, blueprint: &Blueprint, index: usize) -> Option<RetryTarget> {
+    fn determine_retry_target(
+        &self,
+        blueprint: &Blueprint,
+        context: &RunContext,
+        index: usize,
+    ) -> Option<RetryTarget> {
         let step = &blueprint.steps[index];
         if let Some(condition) = &step.condition {
             for token in condition.split(|ch: char| {
                 !(ch.is_ascii_alphanumeric() || ch == '-' || ch == '.' || ch == '_')
             }) {
                 if let Some(name) = token.strip_suffix(".exit_code") {
-                    if let Some(existing_step) = blueprint
+                    if let Some((target_index, existing_step)) = blueprint
                         .steps
                         .iter()
-                        .find(|candidate| candidate.name == name)
+                        .enumerate()
+                        .find(|(_, candidate)| candidate.name == name)
                     {
                         return Some(RetryTarget {
                             step: existing_step.clone(),
+                            step_id: scoped_step_id(context, target_index),
                             consumed_next: false,
                         });
                     }
@@ -478,6 +514,7 @@ where
             .get(index + 1)
             .cloned()
             .map(|step| RetryTarget {
+                step_id: scoped_step_id(context, index + 1),
                 step,
                 consumed_next: true,
             })
@@ -486,6 +523,7 @@ where
     fn run_agentic_with_retries(
         &mut self,
         step: &Step,
+        step_id: &str,
         retry_target: Option<&RetryTarget>,
         context: &mut RunContext,
     ) -> Result<(StepResult, Option<StepResult>, bool), ForgeError> {
@@ -499,12 +537,12 @@ where
 
         loop {
             attempts += 1;
-            let mut agent_result = self.run_single_step(step, context)?;
+            let mut agent_result = self.run_single_step(step, step_id, context)?;
             agent_result.attempts = attempts;
             self.ensure_step_log(&mut agent_result)?;
             context
                 .step_results
-                .insert(step.name.clone(), agent_result.clone());
+                .insert(agent_result.step_id.clone(), agent_result.clone());
 
             if is_non_retriable_agent_failure(&agent_result) {
                 let consumed_next = retry_target.is_some_and(|target| target.consumed_next);
@@ -522,13 +560,17 @@ where
                             steps: vec![target.step.clone()],
                             source_path: None,
                         };
-                        let mut results =
-                            self.run_sub_blueprint(&target.step, &synthetic_parent, context)?;
+                        let mut results = self.run_sub_blueprint(
+                            &target.step,
+                            &target.step_id,
+                            &synthetic_parent,
+                            context,
+                        )?;
                         results.pop().ok_or_else(|| {
                             ForgeError::message("retry target produced no step results")
                         })?
                     } else {
-                        self.run_single_step(&target.step, context)?
+                        self.run_single_step(&target.step, &target.step_id, context)?
                     };
                 self.ensure_step_log(&mut test_result)?;
 
@@ -538,7 +580,7 @@ where
                 );
                 context
                     .step_results
-                    .insert(test_result.name.clone(), test_result.clone());
+                    .insert(test_result.step_id.clone(), test_result.clone());
 
                 if test_result.status == StepStatus::Succeeded {
                     return Ok((agent_result, Some(test_result), consumed_next));
@@ -568,7 +610,7 @@ where
         self.ensure_step_log(&mut result)?;
         context
             .step_results
-            .insert(result.name.clone(), result.clone());
+            .insert(result.step_id.clone(), result.clone());
         self.logger.log_step(&result)?;
         summary.push(result);
         Ok(())
@@ -589,14 +631,7 @@ where
             .iter()
             .map(|step| step.name.clone())
             .collect::<Vec<_>>();
-        run_status::write_snapshot(
-            path,
-            &blueprint.blueprint.name,
-            &step_names,
-            context,
-            current_step,
-            state,
-        )
+        run_status::write_snapshot(path, blueprint, &step_names, context, current_step, state)
     }
 
     fn create_empty_step_log(&mut self, step_name: &str) -> Result<Option<String>, ForgeError> {
@@ -616,6 +651,7 @@ where
 #[derive(Clone)]
 struct RetryTarget {
     step: Step,
+    step_id: String,
     consumed_next: bool,
 }
 
@@ -676,6 +712,52 @@ fn agentic_step_outcome(
             agent_result.status.clone(),
             step_display_exit_code(&agent_result.status, agent_result.exit_code),
         ),
+    }
+}
+
+fn resume_state(
+    blueprint: &Blueprint,
+    context: &RunContext,
+    is_root: bool,
+) -> Result<(Vec<StepResult>, usize), ForgeError> {
+    if !is_root {
+        return Ok((Vec::new(), 0));
+    }
+
+    let Some(step_id) = context.resume_from_step.as_deref() else {
+        return Ok((Vec::new(), 0));
+    };
+
+    let index = blueprint
+        .steps
+        .iter()
+        .enumerate()
+        .find_map(|(index, _)| (root_step_id(index) == step_id).then_some(index))
+        .ok_or_else(|| ForgeError::message(format!("resume step `{step_id}` not found")))?;
+
+    let summary_steps = blueprint.steps[..index]
+        .iter()
+        .enumerate()
+        .filter_map(|(step_index, _)| context.step_results.get(&root_step_id(step_index)).cloned())
+        .collect::<Vec<_>>();
+
+    Ok((summary_steps, index))
+}
+
+fn root_step_id(index: usize) -> String {
+    format!("step-{:04}", index + 1)
+}
+
+fn child_step_id(parent_step_id: &str, index: usize) -> String {
+    format!("{parent_step_id}/{}", root_step_id(index))
+}
+
+fn scoped_step_id(context: &RunContext, index: usize) -> String {
+    let root = root_step_id(index);
+    if context.execution_scope.is_empty() {
+        root
+    } else {
+        format!("{}/{}", context.execution_scope.join("/"), root)
     }
 }
 
@@ -819,7 +901,69 @@ fn apply_sets(step: &Step, result: &StepResult, context: &mut RunContext) {
     }
 }
 
-fn synthesize_parent_result(step: &Step, child_results: &[StepResult]) -> StepResult {
+fn configure_agent_env(
+    env: &mut BTreeMap<String, String>,
+    step_id: &str,
+    agent: &str,
+    context: &RunContext,
+) {
+    if let Some(existing) = context
+        .step_results
+        .get(step_id)
+        .and_then(|result| result.agent_session_id.clone())
+    {
+        env.insert("FORGE_AGENT_RESUME_ID".to_string(), existing);
+        return;
+    }
+
+    if agent == "claude-code"
+        && let Some(run_id) = &context.run_id
+    {
+        env.insert(
+            "FORGE_AGENT_SESSION_ID".to_string(),
+            session_uuid(&format!("{run_id}:{step_id}:{agent}")),
+        );
+    }
+}
+
+fn agent_session_id_for_step(
+    agent: &str,
+    env: &BTreeMap<String, String>,
+    log_path: Option<&Path>,
+) -> Option<String> {
+    if let Some(session_id) = env.get("FORGE_AGENT_RESUME_ID") {
+        return Some(session_id.clone());
+    }
+    if let Some(session_id) = env.get("FORGE_AGENT_SESSION_ID") {
+        return Some(session_id.clone());
+    }
+    if agent == "codex" {
+        return extract_codex_thread_id(log_path);
+    }
+    None
+}
+
+fn extract_codex_thread_id(log_path: Option<&Path>) -> Option<String> {
+    let path = log_path?;
+    let input = fs::read_to_string(path).ok()?;
+    for line in input.lines() {
+        let Ok(value) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if value.get("type").and_then(Value::as_str) == Some("thread.started") {
+            if let Some(thread_id) = value.get("thread_id").and_then(Value::as_str) {
+                return Some(thread_id.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn synthesize_parent_result(
+    step: &Step,
+    step_id: &str,
+    child_results: &[StepResult],
+) -> StepResult {
     let exit_code = child_results
         .iter()
         .map(|result| result.exit_code)
@@ -835,6 +979,7 @@ fn synthesize_parent_result(step: &Step, child_results: &[StepResult]) -> StepRe
     };
 
     StepResult {
+        step_id: step_id.to_string(),
         name: step.name.clone(),
         step_type: step.step_type.clone(),
         status,
@@ -842,6 +987,7 @@ fn synthesize_parent_result(step: &Step, child_results: &[StepResult]) -> StepRe
         stdout: String::new(),
         stderr: String::new(),
         attempts: 1,
+        agent_session_id: None,
         log_file: None,
     }
 }

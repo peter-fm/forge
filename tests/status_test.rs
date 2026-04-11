@@ -1,4 +1,4 @@
-use forge::model::{RunContext, StepResult, StepStatus, StepType};
+use forge::model::{Blueprint, BlueprintMeta, RunContext, StepResult, StepStatus, StepType};
 use forge::run_status::write_snapshot;
 use std::collections::BTreeMap;
 use std::fs;
@@ -17,10 +17,11 @@ fn forge_status_prints_snapshot_summary() {
         .variables
         .insert("target_agent".to_string(), "codex".to_string());
     context.step_started_at =
-        BTreeMap::from([("implement".to_string(), 10), ("test".to_string(), 12)]);
+        BTreeMap::from([("step-0001".to_string(), 10), ("step-0002".to_string(), 12)]);
     context.step_results.insert(
-        "implement".to_string(),
+        "step-0001".to_string(),
         StepResult {
+            step_id: "step-0001".to_string(),
             name: "implement".to_string(),
             step_type: StepType::Agentic,
             status: StepStatus::Succeeded,
@@ -28,15 +29,24 @@ fn forge_status_prints_snapshot_summary() {
             stdout: String::new(),
             stderr: String::new(),
             attempts: 1,
+            agent_session_id: None,
             log_file: None,
         },
     );
     write_snapshot(
         &dir.path().join(".forge/runs/new-feature-a3f2.json"),
-        "new-feature",
+        &Blueprint {
+            blueprint: BlueprintMeta {
+                name: "new-feature".to_string(),
+                description: "x".to_string(),
+                repos: Vec::new(),
+            },
+            steps: Vec::new(),
+            source_path: Some(dir.path().join(".forge/blueprints/new-feature.toml")),
+        },
         &["implement".to_string(), "test".to_string()],
         &context,
-        Some("test"),
+        Some("step-0002"),
         "running",
     )
     .expect("write snapshot");

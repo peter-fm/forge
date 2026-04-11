@@ -14,6 +14,7 @@ pub mod logger;
 pub mod model;
 pub mod notify;
 pub mod parser;
+pub mod run_id;
 pub mod run_status;
 pub mod runner;
 pub mod summarize;

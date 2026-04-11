@@ -9,6 +9,8 @@ use crate::logger::{JsonlRunLogger, RunEnd, RunLogger, RunMeta};
 use crate::model::{Blueprint, RunContext, StepStatus};
 use crate::notify::{build_partial_summary, format_run_summary, resolve_backends};
 use crate::parser::parse_blueprint_file;
+use crate::run_id::generate_run_id;
+use crate::run_status::snapshot_path;
 use crate::runner::{BlueprintLoader, Engine};
 use crate::workspace::{
     InstructionFile, archive_instruction_file, create_instruction_file, resolve_instruction_file,
@@ -17,7 +19,7 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 
-struct FileBlueprintLoader;
+pub(crate) struct FileBlueprintLoader;
 
 impl BlueprintLoader for FileBlueprintLoader {
     fn load(&self, path: &Path) -> Result<Blueprint, ForgeError> {
@@ -66,10 +68,20 @@ pub fn run_command(root: &Path, command: &Commands) -> Result<(), ForgeError> {
     )?;
 
     let mut context = RunContext::new();
+    context.run_id = Some(generate_run_id(&blueprint.blueprint.name)?);
+    context.status_path = context
+        .run_id
+        .as_deref()
+        .map(|run_id| snapshot_path(root, run_id));
     context.variables = std::mem::take(&mut variables);
     context.dry_run = *dry_run;
     context.verbose = *verbose;
     context.instruction_file = instruction.as_ref().map(|file| file.file_name.clone());
+    if let Some(run_id) = &context.run_id {
+        context
+            .variables
+            .insert("run_id".to_string(), run_id.clone());
+    }
     if let Some(instruction) = &instruction {
         context.variables.insert(
             "instruction_file".to_string(),
@@ -115,95 +127,21 @@ pub fn run_command(root: &Path, command: &Commands) -> Result<(), ForgeError> {
     engine.dashboard = dashboard.as_ref().map(|server| server.observer.clone());
 
     let run_result = engine.run_blueprint(&blueprint, &mut context);
-    if let Some(server) = &dashboard {
-        server.observer.complete_run(if run_result.is_ok() {
-            "success"
-        } else {
-            "failure"
-        });
-        eprintln!(
-            "Dashboard available for 60s at http://localhost:{}",
-            server.port
-        );
-    }
-    let summary = match &run_result {
-        Ok(summary) => summary.clone(),
-        Err(_) => build_failure_summary(&blueprint, &context),
-    };
-
-    let finished_at = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0);
-
-    let _ = engine.logger.log_run_end(&RunEnd {
-        entry_type: "run_end",
-        success: run_result.is_ok(),
-        steps_total: summary.steps.len(),
-        steps_passed: summary
-            .steps
-            .iter()
-            .filter(|step| step.status == StepStatus::Succeeded)
-            .count(),
-        steps_failed: summary
-            .steps
-            .iter()
-            .filter(|step| step.status == StepStatus::Failed)
-            .count(),
-        steps_skipped: summary
-            .steps
-            .iter()
-            .filter(|step| step.status == StepStatus::Skipped)
-            .count(),
-        duration_secs: finished_at.saturating_sub(started_at),
-        finished_at,
-    });
-
-    let notification = format_run_summary(&blueprint.blueprint.name, &summary);
-
-    match &run_result {
-        Ok(_) if config.workspace_auto_archive() => {
-            if let Some(instruction) = &instruction {
-                archive_instruction_file(root, &config, instruction, "done")?;
-            }
-        }
-        _ => {}
-    }
-
-    if !notify.is_empty() {
-        let backends = resolve_backends(notify)?;
-        for backend in backends {
-            if let Err(error) = backend.send(&notification) {
-                eprintln!("warning: failed to send notification: {error}");
-            }
-        }
-    }
-
-    if let Ok(summary) = &run_result {
-        for step in &summary.steps {
-            println!(
-                "[{:?}] {} -> {:?} ({})",
-                step.step_type, step.name, step.status, step.exit_code
-            );
-            if *verbose {
-                if !step.stdout.is_empty() {
-                    println!("{}", step.stdout);
-                }
-                if !step.stderr.is_empty() {
-                    eprintln!("{}", step.stderr);
-                }
-            }
-        }
-    }
-
-    if let Some(server) = dashboard.take() {
-        server.wait()?;
-    }
-
-    run_result.map(|_| ())
+    finalize_run(
+        root,
+        &config,
+        instruction.as_ref(),
+        notify,
+        &blueprint,
+        &context,
+        &mut engine,
+        &mut dashboard,
+        run_result,
+        started_at,
+    )
 }
 
-fn load_run_config(root: &Path) -> Result<crate::config::ForgeConfig, ForgeError> {
+pub(crate) fn load_run_config(root: &Path) -> Result<crate::config::ForgeConfig, ForgeError> {
     let dot_forge = root.join(".forge/config.toml");
     if dot_forge.exists() {
         return load_forge_config(&dot_forge);
@@ -238,6 +176,103 @@ fn build_failure_summary(blueprint: &Blueprint, context: &RunContext) -> crate::
         .collect::<Vec<_>>();
     let recorded_steps = context.step_results.values().cloned().collect::<Vec<_>>();
     build_partial_summary(&step_names, &recorded_steps)
+}
+
+pub(crate) fn finalize_run(
+    root: &Path,
+    config: &crate::config::ForgeConfig,
+    instruction: Option<&InstructionFile>,
+    notify: &[String],
+    blueprint: &Blueprint,
+    context: &RunContext,
+    engine: &mut Engine<FileBlueprintLoader, ProcessRuntime, JsonlRunLogger>,
+    dashboard: &mut Option<crate::dashboard::DashboardServer>,
+    run_result: Result<crate::model::RunSummary, ForgeError>,
+    started_at: u64,
+) -> Result<(), ForgeError> {
+    if let Some(server) = dashboard.as_ref() {
+        server.observer.complete_run(if run_result.is_ok() {
+            "success"
+        } else {
+            "failure"
+        });
+        eprintln!(
+            "Dashboard available for 60s at http://localhost:{}",
+            server.port
+        );
+    }
+    let summary = match &run_result {
+        Ok(summary) => summary.clone(),
+        Err(_) => build_failure_summary(blueprint, context),
+    };
+
+    let finished_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+
+    let _ = engine.logger.log_run_end(&RunEnd {
+        entry_type: "run_end",
+        success: run_result.is_ok(),
+        steps_total: summary.steps.len(),
+        steps_passed: summary
+            .steps
+            .iter()
+            .filter(|step| step.status == StepStatus::Succeeded)
+            .count(),
+        steps_failed: summary
+            .steps
+            .iter()
+            .filter(|step| step.status == StepStatus::Failed)
+            .count(),
+        steps_skipped: summary
+            .steps
+            .iter()
+            .filter(|step| step.status == StepStatus::Skipped)
+            .count(),
+        duration_secs: finished_at.saturating_sub(started_at),
+        finished_at,
+    });
+
+    let notification = format_run_summary(&blueprint.blueprint.name, &summary);
+
+    if run_result.is_ok() && config.workspace_auto_archive() {
+        if let Some(instruction) = instruction {
+            archive_instruction_file(root, config, instruction, "done")?;
+        }
+    }
+
+    if !notify.is_empty() {
+        let backends = resolve_backends(notify)?;
+        for backend in backends {
+            if let Err(error) = backend.send(&notification) {
+                eprintln!("warning: failed to send notification: {error}");
+            }
+        }
+    }
+
+    if let Ok(summary) = &run_result {
+        for step in &summary.steps {
+            println!(
+                "[{:?}] {} -> {:?} ({})",
+                step.step_type, step.name, step.status, step.exit_code
+            );
+            if context.verbose {
+                if !step.stdout.is_empty() {
+                    println!("{}", step.stdout);
+                }
+                if !step.stderr.is_empty() {
+                    eprintln!("{}", step.stderr);
+                }
+            }
+        }
+    }
+
+    if let Some(server) = dashboard.take() {
+        server.wait()?;
+    }
+
+    run_result.map(|_| ())
 }
 
 fn today_string() -> Result<String, ForgeError> {

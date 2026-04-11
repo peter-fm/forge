@@ -472,6 +472,230 @@ command = "echo {default_branch}"
     assert!(stdout.contains("echo main"));
 }
 
+#[test]
+fn resume_continues_from_first_unfinished_step() {
+    let dir = tempdir().expect("tempdir");
+    write_run_fixture(
+        dir.path(),
+        false,
+        r#"
+[blueprint]
+name = "demo"
+description = "x"
+
+[[step]]
+type = "deterministic"
+name = "prepare"
+command = "count=$(cat .forge/prepare-count 2>/dev/null || echo 0); count=$((count + 1)); printf '%s' \"$count\" > .forge/prepare-count"
+
+[[step]]
+type = "deterministic"
+name = "finish"
+command = "if [ \"$FORGE_TEST_FAIL\" = \"1\" ]; then echo fail >&2; exit 1; fi; printf 'done\\n'"
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_forge"))
+        .args([
+            "run",
+            "--blueprint",
+            ".forge/blueprints/demo.toml",
+            "--no-dashboard",
+        ])
+        .current_dir(dir.path())
+        .env("FORGE_TEST_FAIL", "1")
+        .output()
+        .expect("run forge");
+
+    assert!(!output.status.success(), "{output:?}");
+    let run_id = only_snapshot_id(dir.path());
+    assert_eq!(
+        fs::read_to_string(dir.path().join(".forge/prepare-count")).expect("prepare count"),
+        "1"
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_forge"))
+        .args(["resume", &run_id, "--no-dashboard"])
+        .current_dir(dir.path())
+        .output()
+        .expect("resume forge");
+
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join(".forge/prepare-count")).expect("prepare count"),
+        "1"
+    );
+
+    let snapshot = fs::read_to_string(
+        dir.path()
+            .join(".forge/runs")
+            .join(format!("{run_id}.json")),
+    )
+    .expect("read snapshot");
+    let snapshot: Value = serde_json::from_str(&snapshot).expect("snapshot json");
+    assert_eq!(snapshot["status"], "succeeded");
+}
+
+#[test]
+fn resume_reuses_codex_thread_id_when_available() {
+    let dir = tempdir().expect("tempdir");
+    write_run_fixture(
+        dir.path(),
+        false,
+        r#"
+[blueprint]
+name = "demo"
+description = "x"
+
+[[step]]
+type = "agentic"
+name = "implement"
+agent = "codex"
+model = "gpt-5.4"
+prompt = "Implement the feature"
+"#,
+    );
+    let init = Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(dir.path())
+        .status()
+        .expect("git init");
+    assert!(init.success());
+
+    let bin_dir = dir.path().join("bin");
+    fs::create_dir_all(&bin_dir).expect("create bin dir");
+    fs::write(
+        bin_dir.join("codex"),
+        format!(
+            "#!/bin/sh\nset -eu\nprintf '%s\\n' \"$*\" >> \"{}/codex-args.log\"\nif printf '%s' \"$*\" | grep -q 'exec resume'; then\n  printf '{{\"type\":\"turn.started\"}}\\n'\n  exit 0\nfi\nprintf '{{\"type\":\"thread.started\",\"thread_id\":\"thread-123\"}}\\n'\nprintf '{{\"type\":\"turn.started\"}}\\n'\nprintf '{{\"type\":\"turn.failed\",\"error\":{{\"message\":\"usage\"}}}}\\n'\nexit 1\n",
+            dir.path().display()
+        ),
+    )
+    .expect("write codex mock");
+    let chmod = Command::new("chmod")
+        .args(["+x", &bin_dir.join("codex").to_string_lossy()])
+        .status()
+        .expect("chmod codex mock");
+    assert!(chmod.success());
+
+    let path = std::env::var("PATH").unwrap_or_default();
+    let first = Command::new(env!("CARGO_BIN_EXE_forge"))
+        .args([
+            "run",
+            "--blueprint",
+            ".forge/blueprints/demo.toml",
+            "--no-dashboard",
+        ])
+        .current_dir(dir.path())
+        .env("PATH", format!("{}:{path}", bin_dir.to_string_lossy()))
+        .output()
+        .expect("run forge");
+    assert!(!first.status.success(), "{first:?}");
+
+    let run_id = only_snapshot_id(dir.path());
+    let snapshot = fs::read_to_string(
+        dir.path()
+            .join(".forge/runs")
+            .join(format!("{run_id}.json")),
+    )
+    .expect("read snapshot");
+    let snapshot: Value = serde_json::from_str(&snapshot).expect("snapshot json");
+    assert_eq!(
+        snapshot["step_results"][0]["agent_session_id"],
+        "thread-123"
+    );
+
+    let resumed = Command::new(env!("CARGO_BIN_EXE_forge"))
+        .args(["resume", &run_id, "--no-dashboard"])
+        .current_dir(dir.path())
+        .env("PATH", format!("{}:{path}", bin_dir.to_string_lossy()))
+        .output()
+        .expect("resume forge");
+    assert!(resumed.status.success(), "{resumed:?}");
+
+    let args = fs::read_to_string(dir.path().join("codex-args.log")).expect("read codex args");
+    assert!(args.contains("exec --json Implement the feature"));
+    assert!(args.contains("exec resume --json thread-123 Implement the feature"));
+}
+
+#[test]
+fn resume_reuses_claude_session_id_when_available() {
+    let dir = tempdir().expect("tempdir");
+    write_run_fixture(
+        dir.path(),
+        false,
+        r#"
+[blueprint]
+name = "demo"
+description = "x"
+
+[[step]]
+type = "agentic"
+name = "implement"
+agent = "claude-code"
+model = "claude-sonnet-4-6"
+prompt = "Implement the feature"
+"#,
+    );
+
+    let bin_dir = dir.path().join("bin");
+    fs::create_dir_all(&bin_dir).expect("create bin dir");
+    fs::write(
+        bin_dir.join("claude"),
+        format!(
+            "#!/bin/sh\nset -eu\nprintf '%s\\n' \"$*\" >> \"{}/claude-args.log\"\nif printf '%s' \"$*\" | grep -q -- '--resume'; then\n  printf 'done\\n'\n  exit 0\nfi\nprintf 'usage exhausted\\n' >&2\nexit 1\n",
+            dir.path().display()
+        ),
+    )
+    .expect("write claude mock");
+    let chmod = Command::new("chmod")
+        .args(["+x", &bin_dir.join("claude").to_string_lossy()])
+        .status()
+        .expect("chmod claude mock");
+    assert!(chmod.success());
+
+    let path = std::env::var("PATH").unwrap_or_default();
+    let first = Command::new(env!("CARGO_BIN_EXE_forge"))
+        .args([
+            "run",
+            "--blueprint",
+            ".forge/blueprints/demo.toml",
+            "--no-dashboard",
+        ])
+        .current_dir(dir.path())
+        .env("PATH", format!("{}:{path}", bin_dir.to_string_lossy()))
+        .output()
+        .expect("run forge");
+    assert!(!first.status.success(), "{first:?}");
+
+    let run_id = only_snapshot_id(dir.path());
+    let snapshot = fs::read_to_string(
+        dir.path()
+            .join(".forge/runs")
+            .join(format!("{run_id}.json")),
+    )
+    .expect("read snapshot");
+    let snapshot: Value = serde_json::from_str(&snapshot).expect("snapshot json");
+    let session_id = snapshot["step_results"][0]["agent_session_id"]
+        .as_str()
+        .expect("session id")
+        .to_string();
+    assert!(!session_id.is_empty());
+
+    let resumed = Command::new(env!("CARGO_BIN_EXE_forge"))
+        .args(["resume", &run_id, "--no-dashboard"])
+        .current_dir(dir.path())
+        .env("PATH", format!("{}:{path}", bin_dir.to_string_lossy()))
+        .output()
+        .expect("resume forge");
+    assert!(resumed.status.success(), "{resumed:?}");
+
+    let args = fs::read_to_string(dir.path().join("claude-args.log")).expect("read claude args");
+    assert!(args.contains("--session-id"));
+    assert!(args.contains(&session_id));
+    assert!(args.contains(&format!("--resume {session_id}")));
+}
+
 fn write_run_fixture(root: &Path, auto_archive: bool, blueprint: &str) {
     fs::create_dir_all(root.join(".forge/blueprints")).expect("blueprints");
     fs::write(
@@ -531,6 +755,22 @@ fn only_run_log(root: &Path) -> std::path::PathBuf {
     files.sort();
     assert_eq!(files.len(), 1, "expected exactly one run log");
     files.remove(0)
+}
+
+fn only_snapshot_id(root: &Path) -> String {
+    let mut files = fs::read_dir(root.join(".forge/runs"))
+        .expect("snapshot entries")
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
+        .collect::<Vec<_>>();
+    files.sort();
+    assert_eq!(files.len(), 1, "expected exactly one snapshot");
+    files[0]
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .expect("snapshot id")
+        .to_string()
 }
 
 fn walk(root: std::path::PathBuf) -> Vec<std::path::PathBuf> {

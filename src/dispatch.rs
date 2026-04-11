@@ -138,14 +138,43 @@ fn run_claude(
     env: &BTreeMap<String, String>,
     log_path: Option<&Path>,
 ) -> Result<ExecutionOutput, ForgeError> {
-    let repo_path = infer_repo_path(step_name, prompt, env)?;
-    let command = format!(
-        "cd {} && claude --model {} --permission-mode bypassPermissions --print {}",
-        shell_quote(&repo_path),
-        shell_quote(model),
-        shell_quote(prompt)
-    );
+    let command = build_claude_command(step_name, model, prompt, env)?;
     run_shell(&command, env, log_path)
+}
+
+fn build_claude_command(
+    step_name: &str,
+    model: &str,
+    prompt: &str,
+    env: &BTreeMap<String, String>,
+) -> Result<String, ForgeError> {
+    let repo_path = infer_repo_path(step_name, prompt, env)?;
+    let resume = env.get("FORGE_AGENT_RESUME_ID");
+    let session = env.get("FORGE_AGENT_SESSION_ID");
+    if let Some(session_id) = resume {
+        Ok(format!(
+            "cd {} && claude --model {} --permission-mode bypassPermissions --print --resume {} {}",
+            shell_quote(&repo_path),
+            shell_quote(model),
+            shell_quote(session_id),
+            shell_quote(prompt)
+        ))
+    } else if let Some(session_id) = session {
+        Ok(format!(
+            "cd {} && claude --model {} --permission-mode bypassPermissions --print --session-id {} {}",
+            shell_quote(&repo_path),
+            shell_quote(model),
+            shell_quote(session_id),
+            shell_quote(prompt)
+        ))
+    } else {
+        Ok(format!(
+            "cd {} && claude --model {} --permission-mode bypassPermissions --print {}",
+            shell_quote(&repo_path),
+            shell_quote(model),
+            shell_quote(prompt)
+        ))
+    }
 }
 
 fn run_codex(
@@ -193,15 +222,28 @@ fn build_codex_command(
         .get("FORGE_CODEX_EXEC_FLAGS")
         .cloned()
         .unwrap_or_else(|| "--json".to_string());
+    let resume = env.get("FORGE_AGENT_RESUME_ID");
 
-    Ok(format!(
-        "cd {} && codex {} --model {} exec {} {}",
-        shell_quote(&repo_path),
-        top_flags,
-        shell_quote(model),
-        exec_flags,
-        shell_quote(prompt)
-    ))
+    if let Some(session_id) = resume {
+        Ok(format!(
+            "cd {} && codex {} --model {} exec resume {} {} {}",
+            shell_quote(&repo_path),
+            top_flags,
+            shell_quote(model),
+            exec_flags,
+            shell_quote(session_id),
+            shell_quote(prompt)
+        ))
+    } else {
+        Ok(format!(
+            "cd {} && codex {} --model {} exec {} {}",
+            shell_quote(&repo_path),
+            top_flags,
+            shell_quote(model),
+            exec_flags,
+            shell_quote(prompt)
+        ))
+    }
 }
 
 fn spawn_reader<R>(
@@ -375,7 +417,7 @@ fn should_collect_codex_diff(execution: &ExecutionOutput) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_codex_command, infer_repo_path, run_shell, select_codex_output,
+        build_claude_command, build_codex_command, infer_repo_path, run_shell, select_codex_output,
         should_collect_codex_diff,
     };
     use crate::runner::ExecutionOutput;
@@ -485,6 +527,64 @@ mod tests {
             command.contains("codex --yolo --model 'gpt-5.4' exec  'fix it'"),
             "unexpected command: {command}"
         );
+    }
+
+    #[test]
+    fn codex_resume_command_uses_exec_resume_subcommand() {
+        let env = BTreeMap::from([
+            (
+                "FORGE_AGENT_RESUME_ID".to_string(),
+                "019d7824-b932-77d1-bc55-59db268b05b0".to_string(),
+            ),
+            ("PWD".to_string(), "/repo".to_string()),
+        ]);
+
+        let command =
+            build_codex_command("implement", "gpt-5.4", "fix it", &env).expect("codex command");
+
+        assert!(
+            command.contains(
+                "codex --yolo --model 'gpt-5.4' exec resume --json '019d7824-b932-77d1-bc55-59db268b05b0' 'fix it'"
+            ),
+            "unexpected command: {command}"
+        );
+    }
+
+    #[test]
+    fn claude_command_prefers_resume_id_over_session_id() {
+        let env = BTreeMap::from([
+            (
+                "FORGE_AGENT_RESUME_ID".to_string(),
+                "31e8f4e8-ef7d-4966-afc5-0e8f0f548af0".to_string(),
+            ),
+            (
+                "FORGE_AGENT_SESSION_ID".to_string(),
+                "b230d7f8-bfa8-4af5-a664-7e17e53f5b35".to_string(),
+            ),
+            ("PWD".to_string(), "/repo".to_string()),
+        ]);
+
+        let command =
+            build_claude_command("implement", "sonnet", "fix it", &env).expect("claude command");
+
+        assert!(command.contains("--resume '31e8f4e8-ef7d-4966-afc5-0e8f0f548af0'"));
+        assert!(!command.contains("--session-id"));
+    }
+
+    #[test]
+    fn claude_command_uses_session_id_for_initial_run() {
+        let env = BTreeMap::from([
+            (
+                "FORGE_AGENT_SESSION_ID".to_string(),
+                "b230d7f8-bfa8-4af5-a664-7e17e53f5b35".to_string(),
+            ),
+            ("PWD".to_string(), "/repo".to_string()),
+        ]);
+
+        let command =
+            build_claude_command("implement", "sonnet", "fix it", &env).expect("claude command");
+
+        assert!(command.contains("--session-id 'b230d7f8-bfa8-4af5-a664-7e17e53f5b35'"));
     }
 
     #[test]

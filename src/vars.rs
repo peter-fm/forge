@@ -40,10 +40,13 @@ pub fn substitute_text(
 
 pub fn build_variable_scope(context: &RunContext) -> BTreeMap<String, String> {
     let mut variables = context.variables.clone();
-    for (name, result) in &context.step_results {
-        variables.insert(format!("{name}.exit_code"), result.exit_code.to_string());
+    for result in context.step_results.values() {
         variables.insert(
-            format!("{name}_output"),
+            format!("{}.exit_code", result.name),
+            result.exit_code.to_string(),
+        );
+        variables.insert(
+            format!("{}_output", result.name),
             join_output(&result.stdout, &result.stderr),
         );
     }

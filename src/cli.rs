@@ -72,6 +72,17 @@ pub enum Commands {
         #[arg(long = "all")]
         all: bool,
     },
+    Resume {
+        run_id: String,
+        #[arg(long)]
+        no_dashboard: bool,
+        #[arg(long, default_value_t = 8400)]
+        port: u16,
+        #[arg(long, value_delimiter = ',')]
+        notify: Vec<String>,
+        #[arg(long)]
+        verbose: bool,
+    },
     List,
 }
 

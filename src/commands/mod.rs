@@ -5,6 +5,7 @@ pub mod clean;
 pub mod generate;
 pub mod init;
 pub mod list;
+pub mod resume;
 pub mod run;
 pub mod status;
 
@@ -42,6 +43,7 @@ pub fn dispatch(cli: Cli) -> Result<(), ForgeError> {
         Commands::Clean { archive, dry_run } => clean::clean_command(&root, archive, dry_run),
         Commands::Run { .. } => run::run_command(&root, &cli.command),
         Commands::Status { run_id, all } => status::print_status(&root, run_id.as_deref(), all),
+        Commands::Resume { ref run_id, .. } => resume::resume_command(&root, run_id, &cli.command),
         Commands::List => list::list_blueprints(&root),
     }
 }

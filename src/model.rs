@@ -66,7 +66,7 @@ pub struct Blueprint {
     pub source_path: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StepStatus {
     Pending,
     Skipped,
@@ -74,8 +74,9 @@ pub enum StepStatus {
     Failed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StepResult {
+    pub step_id: String,
     pub name: String,
     pub step_type: StepType,
     pub status: StepStatus,
@@ -83,6 +84,8 @@ pub struct StepResult {
     pub stdout: String,
     pub stderr: String,
     pub attempts: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub log_file: Option<String>,
 }
@@ -97,11 +100,13 @@ pub struct RunContext {
     pub variables: BTreeMap<String, String>,
     pub step_results: BTreeMap<String, StepResult>,
     pub blueprint_stack: Vec<String>,
+    pub execution_scope: Vec<String>,
     pub status_path: Option<PathBuf>,
     pub run_id: Option<String>,
     pub instruction_file: Option<String>,
     pub run_started_at: Option<u64>,
     pub step_started_at: BTreeMap<String, u64>,
+    pub resume_from_step: Option<String>,
     pub dry_run: bool,
     pub verbose: bool,
 }
