@@ -670,6 +670,62 @@ fn retries_agentic_steps_until_tests_pass() {
 }
 
 #[test]
+fn usage_limit_failure_does_not_retry_agent_step() {
+    let mut fix = agentic_step("fix-tests", "repair");
+    fix.max_retries = Some(3);
+    let blueprint = blueprint_with_steps(vec![fix]);
+
+    let runtime = MockRuntime::default();
+    runtime.push_agent(
+        1,
+        "{\"type\":\"error\",\"message\":\"You've hit your usage limit.\"}",
+        "",
+    );
+
+    let mut engine = test_engine(
+        runtime.clone(),
+        MockLoader::default(),
+        MemoryLogger::default(),
+    );
+    let error = engine
+        .run_blueprint(&blueprint, &mut RunContext::new())
+        .expect_err("usage limit should fail immediately");
+
+    assert!(error.to_string().contains("fix-tests"));
+    assert_eq!(runtime.agent_names(), vec!["fix-tests".to_string()]);
+}
+
+#[test]
+fn usage_limit_failure_skips_retry_target_check() {
+    let mut fix = agentic_step("fix-tests", "repair using {test_output}");
+    fix.max_retries = Some(3);
+    let blueprint = blueprint_with_steps(vec![fix, deterministic_step("test-chain", "cargo test")]);
+
+    let runtime = MockRuntime::default();
+    runtime.push_agent(
+        1,
+        "",
+        "Error: 429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"This request would exceed your account's rate limit. Please try again later.\"}}",
+    );
+
+    let mut engine = test_engine(
+        runtime.clone(),
+        MockLoader::default(),
+        MemoryLogger::default(),
+    );
+    let error = engine
+        .run_blueprint(&blueprint, &mut RunContext::new())
+        .expect_err("rate limit should short-circuit retries");
+
+    assert!(error.to_string().contains("fix-tests"));
+    assert_eq!(runtime.agent_names(), vec!["fix-tests".to_string()]);
+    assert!(runtime.command_names().is_empty());
+    assert_eq!(engine.logger.entries.len(), 1);
+    assert_eq!(engine.logger.entries[0].name, "fix-tests");
+    assert_eq!(engine.logger.entries[0].status, StepStatus::Failed);
+}
+
+#[test]
 fn conditional_retry_step_retries_failed_previous_step() {
     let mut lint = deterministic_step("lint", "cargo clippy");
     lint.allow_failure = true;

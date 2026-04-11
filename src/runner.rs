@@ -506,6 +506,11 @@ where
                 .step_results
                 .insert(step.name.clone(), agent_result.clone());
 
+            if is_non_retriable_agent_failure(&agent_result) {
+                let consumed_next = retry_target.is_some_and(|target| target.consumed_next);
+                return Ok((agent_result, None, consumed_next));
+            }
+
             if let Some(target) = retry_target {
                 consumed_next = target.consumed_next;
                 let mut test_result =
@@ -672,6 +677,33 @@ fn agentic_step_outcome(
             step_display_exit_code(&agent_result.status, agent_result.exit_code),
         ),
     }
+}
+
+fn is_non_retriable_agent_failure(result: &StepResult) -> bool {
+    if result.step_type != StepType::Agentic || result.status != StepStatus::Failed {
+        return false;
+    }
+
+    let output = vars::join_output(&result.stdout, &result.stderr).to_ascii_lowercase();
+    let patterns = [
+        "hit your usage limit",
+        "usage limit",
+        "out of extra usage",
+        "add more at claude.ai/settings/usage",
+        "rate_limit_error",
+        "would exceed your account's rate limit",
+        "invalid_request_error",
+        "authentication_error",
+        "oauth token has expired",
+        "invalid api key",
+        "missing api key",
+        "could not resolve authentication method",
+        "security token expired",
+        "authorization error",
+        "authentication failed",
+    ];
+
+    patterns.iter().any(|pattern| output.contains(pattern))
 }
 
 fn dashboard_status(status: &StepStatus) -> DashboardStepStatus {

@@ -157,7 +157,10 @@ fn run_codex(
 ) -> Result<ExecutionOutput, ForgeError> {
     let repo_path = infer_repo_path(step_name, prompt, env)?;
     let command = build_codex_command(step_name, model, prompt, env)?;
-    let _ = run_shell(&command, env, log_path)?;
+    let execution = run_shell(&command, env, log_path)?;
+    if !should_collect_codex_diff(&execution) {
+        return Ok(execution);
+    }
 
     let diff = run_shell(
         &format!(
@@ -167,7 +170,7 @@ fn run_codex(
         env,
         None,
     )?;
-    Ok(diff)
+    Ok(select_codex_output(execution, diff))
 }
 
 fn build_codex_command(
@@ -360,9 +363,22 @@ fn shell_quote(input: &str) -> String {
     format!("'{}'", input.replace('\'', "'\"'\"'"))
 }
 
+fn select_codex_output(execution: ExecutionOutput, diff: ExecutionOutput) -> ExecutionOutput {
+    debug_assert_eq!(execution.exit_code, 0);
+    diff
+}
+
+fn should_collect_codex_diff(execution: &ExecutionOutput) -> bool {
+    execution.exit_code == 0
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{build_codex_command, infer_repo_path, run_shell};
+    use super::{
+        build_codex_command, infer_repo_path, run_shell, select_codex_output,
+        should_collect_codex_diff,
+    };
+    use crate::runner::ExecutionOutput;
     use std::collections::BTreeMap;
     use std::fs;
     use std::sync::Arc;
@@ -469,6 +485,36 @@ mod tests {
             command.contains("codex --yolo --model 'gpt-5.4' exec  'fix it'"),
             "unexpected command: {command}"
         );
+    }
+
+    #[test]
+    fn failed_codex_run_keeps_agent_exit_code_and_output() {
+        let execution = ExecutionOutput {
+            exit_code: 1,
+            stdout: "{\"type\":\"turn.failed\"}\n".to_string(),
+            stderr: String::new(),
+        };
+
+        assert!(!should_collect_codex_diff(&execution));
+    }
+
+    #[test]
+    fn successful_codex_run_returns_diff_output() {
+        let execution = ExecutionOutput {
+            exit_code: 0,
+            stdout: "{\"type\":\"turn.completed\"}\n".to_string(),
+            stderr: String::new(),
+        };
+        let diff = ExecutionOutput {
+            exit_code: 0,
+            stdout: "diff --git a/file b/file\n".to_string(),
+            stderr: String::new(),
+        };
+
+        let result = select_codex_output(execution, diff);
+
+        assert_eq!(result.exit_code, 0);
+        assert!(result.stdout.contains("diff --git"));
     }
 
     #[test]
