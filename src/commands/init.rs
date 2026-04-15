@@ -49,6 +49,7 @@ pub fn write_generated_files(
 
 fn render_default_blueprints(detected: &DetectedProject) -> Vec<(&'static str, String)> {
     let mut blueprints = vec![
+        ("lint-and-test.toml", render_lint_and_test_blueprint(detected)),
         ("new-feature.toml", render_new_feature_blueprint(detected)),
         ("fix-bug.toml", render_fix_bug_blueprint(detected)),
         ("refactor.toml", render_refactor_blueprint(detected)),
@@ -137,7 +138,7 @@ pub fn render_refactor_blueprint(detected: &DetectedProject) -> String {
 }
 
 fn render_branching_blueprint(
-    detected: &DetectedProject,
+    _detected: &DetectedProject,
     name: &str,
     description: &str,
     creative_step_name: &str,
@@ -181,38 +182,7 @@ fn render_branching_blueprint(
         "git add -A && git diff --cached --quiet || git commit -m \"{commit_message}\"",
         false,
     );
-    append_command_step(
-        &mut output,
-        "lint",
-        detected
-            .commands
-            .lint
-            .as_deref()
-            .unwrap_or("{lint_command}"),
-        true,
-    );
-    append_agentic_retry_step(
-        &mut output,
-        "fix-lint",
-        "The linter reported errors. Run the lint command again to see the failures, then fix them. Only fix lint issues, do not change functionality.",
-        "lint.exit_code != 0",
-    );
-    append_command_step(
-        &mut output,
-        "test",
-        detected
-            .commands
-            .test
-            .as_deref()
-            .unwrap_or("{test_command}"),
-        true,
-    );
-    append_agentic_retry_step(
-        &mut output,
-        "fix-tests",
-        "The tests failed. Run the test command again to see the specific failures, then fix them. Only fix test failures, do not change functionality.",
-        "test.exit_code != 0",
-    );
+    append_blueprint_step(&mut output, "verify", "lint-and-test");
     append_docs_check_step(&mut output);
     append_command_step(
         &mut output,
@@ -261,7 +231,7 @@ pub fn render_code_review_blueprint(_detected: &DetectedProject) -> String {
     output
 }
 
-pub fn render_pr_review_blueprint(detected: &DetectedProject) -> String {
+pub fn render_pr_review_blueprint(_detected: &DetectedProject) -> String {
     let mut output = String::from(GENERATED_HEADER);
     output.push_str("[blueprint]\n");
     output.push_str("name = \"pr-review\"\n");
@@ -288,37 +258,11 @@ pub fn render_pr_review_blueprint(detected: &DetectedProject) -> String {
     output.push_str(&format!(
         "command = \"git checkout {DEFAULT_BRANCH_VAR} && git pull\"\n\n"
     ));
-    output.push_str("[[step]]\n");
-    output.push_str("type = \"deterministic\"\n");
-    output.push_str("name = \"post-merge-test\"\n");
-    output.push_str(&format!(
-        "command = \"{}\"\n\n",
-        escape_toml(
-            detected
-                .commands
-                .test
-                .as_deref()
-                .unwrap_or("{test_command}")
-        )
-    ));
-    output.push_str("[[step]]\n");
-    output.push_str("type = \"deterministic\"\n");
-    output.push_str("name = \"post-merge-lint\"\n");
-    output.push_str(&format!(
-        "command = \"{}\"\n",
-        escape_toml(
-            detected
-                .commands
-                .lint
-                .as_deref()
-                .unwrap_or("{lint_command}")
-        )
-    ));
-    output.push_str("allow_failure = true\n");
+    append_blueprint_step(&mut output, "post-merge-verify", "lint-and-test");
     output
 }
 
-pub fn render_refactor_phase_blueprint(detected: &DetectedProject) -> String {
+pub fn render_refactor_phase_blueprint(_detected: &DetectedProject) -> String {
     let mut output = String::from(GENERATED_HEADER);
     output.push_str("[blueprint]\n");
     output.push_str("name = \"refactor-phase\"\n");
@@ -343,42 +287,11 @@ pub fn render_refactor_phase_blueprint(detected: &DetectedProject) -> String {
         "git add -A && git diff --cached --quiet || git commit -m \"{commit_message}\"",
         false,
     );
-    append_command_step(
-        &mut output,
-        "lint",
-        detected
-            .commands
-            .lint
-            .as_deref()
-            .unwrap_or("{lint_command}"),
-        true,
-    );
-    append_agentic_retry_step(
-        &mut output,
-        "fix-lint",
-        "The linter reported errors. Run the lint command again to see the failures, then fix them. Only fix lint issues, do not change functionality.",
-        "lint.exit_code != 0",
-    );
-    append_command_step(
-        &mut output,
-        "test",
-        detected
-            .commands
-            .test
-            .as_deref()
-            .unwrap_or("{test_command}"),
-        true,
-    );
-    append_agentic_retry_step(
-        &mut output,
-        "fix-tests",
-        "The tests failed. Run the test command again to see the specific failures, then fix them. Only fix test failures, do not change functionality.",
-        "test.exit_code != 0",
-    );
+    append_blueprint_step(&mut output, "verify", "lint-and-test");
     output
 }
 
-pub fn render_refactor_finalize_blueprint(detected: &DetectedProject) -> String {
+pub fn render_refactor_finalize_blueprint(_detected: &DetectedProject) -> String {
     let mut output = String::from(GENERATED_HEADER);
     output.push_str("[blueprint]\n");
     output.push_str("name = \"refactor-finalize\"\n");
@@ -391,26 +304,7 @@ pub fn render_refactor_finalize_blueprint(detected: &DetectedProject) -> String 
         "git checkout {refactor_branch}",
         false,
     );
-    append_command_step(
-        &mut output,
-        "final-lint",
-        detected
-            .commands
-            .lint
-            .as_deref()
-            .unwrap_or("{lint_command}"),
-        false,
-    );
-    append_command_step(
-        &mut output,
-        "final-test",
-        detected
-            .commands
-            .test
-            .as_deref()
-            .unwrap_or("{test_command}"),
-        false,
-    );
+    append_blueprint_step(&mut output, "final-verify", "lint-and-test");
     append_docs_check_step(&mut output);
     append_command_step(
         &mut output,
@@ -446,20 +340,64 @@ pub fn render_test_blueprint(detected: &DetectedProject) -> String {
     let mut output = String::from(GENERATED_HEADER);
     output.push_str("[blueprint]\n");
     output.push_str("name = \"test\"\n");
-    output.push_str("description = \"Run the project's test command\"\n\n");
-    output.push_str("[[step]]\n");
-    output.push_str("type = \"deterministic\"\n");
-    output.push_str("name = \"test\"\n");
-    output.push_str(&format!(
-        "command = \"{}\"\n",
-        escape_toml(
-            detected
-                .commands
-                .test
-                .as_deref()
-                .unwrap_or("{test_command}")
-        )
-    ));
+    output.push_str("description = \"Run the project's test command and try to fix failures\"\n\n");
+    append_command_step(
+        &mut output,
+        "test",
+        detected
+            .commands
+            .test
+            .as_deref()
+            .unwrap_or("{test_command}"),
+        true,
+    );
+    append_agentic_retry_step(
+        &mut output,
+        "fix-tests",
+        "The test step failed.\n\nRead the failing test log first: {test.log_file}\nThe exact test command is: {test_command}\n\nRequirements:\n1. Work from the repo root.\n2. Read the log before changing anything.\n3. Fix only the failures shown by that test step.\n4. Reproduce with the same command before making broader guesses.\n5. Do not substitute a different test command unless the log makes clear that a narrower repro is needed after you have read the failing output.\n6. Do not change functionality outside what is required to fix the failing tests.\n7. Do not edit unrelated files such as Forge blueprints/instructions unless the failure is in those files.\n\nAfter making changes, rerun exactly: {test_command}",
+        "test.exit_code != 0",
+    );
+    output
+}
+
+pub fn render_lint_and_test_blueprint(detected: &DetectedProject) -> String {
+    let mut output = String::from(GENERATED_HEADER);
+    output.push_str("[blueprint]\n");
+    output.push_str("name = \"lint-and-test\"\n");
+    output.push_str("description = \"Run lint and tests, then fix failures using the recorded logs\"\n\n");
+
+    append_command_step(
+        &mut output,
+        "lint",
+        detected
+            .commands
+            .lint
+            .as_deref()
+            .unwrap_or("{lint_command}"),
+        true,
+    );
+    append_agentic_retry_step(
+        &mut output,
+        "fix-lint",
+        "The lint step failed.\n\nRead the failing lint log first: {lint.log_file}\nThe exact lint command is: {lint_command}\n\nRequirements:\n1. Work from the repo root.\n2. Read the log before changing anything.\n3. Fix only the failures shown by that lint step.\n4. Address the first failing gate before anything else. If formatting fails, fix formatting before investigating deeper lint output.\n5. Do not substitute a different lint command or drift into package-local checks unless the lint log explicitly requires it.\n6. Do not change functionality.\n7. Do not edit unrelated files such as Forge blueprints/instructions unless the lint failure is in those files.\n\nAfter making changes, rerun exactly: {lint_command}",
+        "lint.exit_code != 0",
+    );
+    append_command_step(
+        &mut output,
+        "test",
+        detected
+            .commands
+            .test
+            .as_deref()
+            .unwrap_or("{test_command}"),
+        true,
+    );
+    append_agentic_retry_step(
+        &mut output,
+        "fix-tests",
+        "The test step failed.\n\nRead the failing test log first: {test.log_file}\nThe exact test command is: {test_command}\n\nRequirements:\n1. Work from the repo root.\n2. Read the log before changing anything.\n3. Fix only the failures shown by that test step.\n4. Reproduce with the same command before making broader guesses.\n5. Do not substitute a different test command unless the log makes clear that a narrower repro is needed after you have read the failing output.\n6. Do not change functionality outside what is required to fix the failing tests.\n7. Do not edit unrelated files such as Forge blueprints/instructions unless the failure is in those files.\n\nAfter making changes, rerun exactly: {test_command}",
+        "test.exit_code != 0",
+    );
     output
 }
 
@@ -491,6 +429,13 @@ fn append_agentic_retry_step(output: &mut String, name: &str, prompt: &str, cond
     output.push_str(&format!("prompt = \"\"\"{}\"\"\"\n", prompt));
     output.push_str(&format!("condition = \"{}\"\n", escape_toml(condition)));
     output.push_str("max_retries = 2\n\n");
+}
+
+fn append_blueprint_step(output: &mut String, name: &str, blueprint: &str) {
+    output.push_str("[[step]]\n");
+    output.push_str("type = \"blueprint\"\n");
+    output.push_str(&format!("name = \"{}\"\n", escape_toml(name)));
+    output.push_str(&format!("blueprint = \"{}\"\n\n", escape_toml(blueprint)));
 }
 
 fn append_command_step(output: &mut String, name: &str, command: &str, allow_failure: bool) {

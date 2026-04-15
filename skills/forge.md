@@ -130,7 +130,7 @@ Use this when you need to create or extend `.forge/blueprints/*.toml`, not just 
 - `--var` overrides: `{key}` for any `--var key=value`
 - Auto-generated: `{date}`, `{forge_path}`
 - Multi-repo config: `{repo_name_path}` for each configured repo
-- Conditional outputs: `{step_name.exit_code}`
+- Step results: `{step_name.exit_code}`, `{step_name.log_file}`, `{step_name_output}`
 - Agent selection: `{target_agent}`, `{target_model}`
 
 ### Design Principles

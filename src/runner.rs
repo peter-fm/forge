@@ -858,33 +858,33 @@ fn apply_params(
     }
 
     for child_step in &mut blueprint.steps {
-        child_step.command = substitute_option(child_step.command.take(), &variables)?;
-        child_step.agent = substitute_option(child_step.agent.take(), &variables)?;
-        child_step.model = substitute_option(child_step.model.take(), &variables)?;
-        child_step.prompt = substitute_option(child_step.prompt.take(), &variables)?;
-        child_step.blueprint = substitute_option(child_step.blueprint.take(), &variables)?;
-        child_step.condition = substitute_option(child_step.condition.take(), &variables)?;
+        child_step.command = substitute_known_option(child_step.command.take(), &variables)?;
+        child_step.agent = substitute_known_option(child_step.agent.take(), &variables)?;
+        child_step.model = substitute_known_option(child_step.model.take(), &variables)?;
+        child_step.prompt = substitute_known_option(child_step.prompt.take(), &variables)?;
+        child_step.blueprint = substitute_known_option(child_step.blueprint.take(), &variables)?;
+        child_step.condition = substitute_known_option(child_step.condition.take(), &variables)?;
         child_step.params = child_step
             .params
             .iter()
-            .map(|(key, value)| Ok((key.clone(), vars::substitute_text(value, &variables)?)))
+            .map(|(key, value)| Ok((key.clone(), vars::substitute_known_text(value, &variables)?)))
             .collect::<Result<_, ForgeError>>()?;
         child_step.env = child_step
             .env
             .iter()
-            .map(|(key, value)| Ok((key.clone(), vars::substitute_text(value, &variables)?)))
+            .map(|(key, value)| Ok((key.clone(), vars::substitute_known_text(value, &variables)?)))
             .collect::<Result<_, ForgeError>>()?;
     }
 
     Ok(blueprint)
 }
 
-fn substitute_option(
+fn substitute_known_option(
     value: Option<String>,
     variables: &BTreeMap<String, String>,
 ) -> Result<Option<String>, ForgeError> {
     value
-        .map(|text| vars::substitute_text(&text, variables))
+        .map(|text| vars::substitute_known_text(&text, variables))
         .transpose()
 }
 

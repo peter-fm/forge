@@ -17,7 +17,7 @@ use forge::model::{Blueprint, RunContext, Step, StepResult, StepStatus, StepType
 use forge::notify::{format_run_summary, openclaw_command_args, resolve_backends};
 use forge::parser::{parse_blueprint_file, parse_blueprint_str};
 use forge::runner::{BlueprintLoader, Engine, ExecutionOutput, Runtime};
-use forge::vars::{build_variable_scope, substitute_text};
+use forge::vars::{build_variable_scope, substitute_known_text, substitute_text};
 use tempfile::{TempDir, tempdir};
 
 #[test]
@@ -34,10 +34,7 @@ fn parses_generated_refactor_blueprint() {
             "create-branch",
             "refactor",
             "commit-backstop",
-            "lint",
-            "fix-lint",
-            "test",
-            "fix-tests",
+            "verify",
             "docs-check",
             "docs-commit-backstop",
             "push-branch",
@@ -61,10 +58,7 @@ fn parses_generated_new_feature_blueprint() {
             "create-branch",
             "implement",
             "commit-backstop",
-            "lint",
-            "fix-lint",
-            "test",
-            "fix-tests",
+            "verify",
             "docs-check",
             "docs-commit-backstop",
             "push-branch",
@@ -80,8 +74,8 @@ fn parses_generated_new_feature_blueprint() {
             .any(|step| step.max_retries == Some(2))
     );
     assert!(
-        blueprint.steps.iter().any(|step| step.name == "fix-lint"
-            && step.condition.as_deref() == Some("lint.exit_code != 0"))
+        blueprint.steps.iter().any(|step| step.name == "verify"
+            && step.blueprint.as_deref() == Some("lint-and-test"))
     );
     assert!(blueprint.steps.iter().any(|step| step.name == "docs-check"));
     assert!(
@@ -112,10 +106,7 @@ fn generated_fix_bug_blueprint_uses_deterministic_branching_skeleton() {
             "create-branch",
             "fix",
             "commit-backstop",
-            "lint",
-            "fix-lint",
-            "test",
-            "fix-tests",
+            "verify",
             "docs-check",
             "docs-commit-backstop",
             "push-branch",
@@ -156,19 +147,12 @@ fn parses_generated_refactor_phase_blueprint() {
             "checkout-or-create-branch",
             "implement-phase",
             "commit-backstop",
-            "lint",
-            "fix-lint",
-            "test",
-            "fix-tests",
+            "verify",
         ],
     );
     assert!(
-        blueprint.steps.iter().any(|step| step.name == "fix-lint"
-            && step.condition.as_deref() == Some("lint.exit_code != 0"))
-    );
-    assert!(
-        blueprint.steps.iter().any(|step| step.name == "fix-tests"
-            && step.condition.as_deref() == Some("test.exit_code != 0"))
+        blueprint.steps.iter().any(|step| step.name == "verify"
+            && step.blueprint.as_deref() == Some("lint-and-test"))
     );
 }
 
@@ -183,8 +167,7 @@ fn parses_generated_refactor_finalize_blueprint() {
         &blueprint,
         &[
             "checkout-branch",
-            "final-lint",
-            "final-test",
+            "final-verify",
             "docs-check",
             "docs-commit-backstop",
             "push-branch",
@@ -268,6 +251,15 @@ fn rejects_missing_variables() {
 }
 
 #[test]
+fn preserve_mode_leaves_unknown_placeholders_intact() {
+    let variables = BTreeMap::from([("known".to_string(), "value".to_string())]);
+    let output =
+        substitute_known_text("use {known} then {future.log_file}", &variables).expect("substitute");
+
+    assert_eq!(output, "use value then {future.log_file}");
+}
+
+#[test]
 fn exposes_step_output_variables() {
     let mut context = RunContext::new();
     context.step_results.insert(
@@ -282,7 +274,7 @@ fn exposes_step_output_variables() {
             stderr: String::new(),
             attempts: 1,
             agent_session_id: None,
-            log_file: None,
+            log_file: Some(".forge/runs/run-123/step-1-lint.log".to_string()),
         },
     );
 
@@ -294,6 +286,10 @@ fn exposes_step_output_variables() {
     assert_eq!(
         variables.get("lint.exit_code").map(String::as_str),
         Some("0")
+    );
+    assert_eq!(
+        variables.get("lint.log_file").map(String::as_str),
+        Some(".forge/runs/run-123/step-1-lint.log")
     );
 }
 

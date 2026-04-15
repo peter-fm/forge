@@ -200,7 +200,7 @@ env = { KEY = "VAL" }      # extra env vars
 | `--var` overrides | `{key}` for any `--var key=value` |
 | Auto-generated | `{date}`, `{forge_path}` |
 | Multi-repo | `{repo_name_path}` for each configured repo |
-| Conditional steps | `{step_name.exit_code}` |
+| Step results | `{step_name.exit_code}`, `{step_name.log_file}`, `{step_name_output}` |
 | Agent | `{target_agent}`, `{target_model}` |
 
 ### Design Principles
