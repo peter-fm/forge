@@ -34,9 +34,8 @@ pub fn ensure_workspace_layout(root: &Path, config: &ForgeConfig) -> Result<(), 
 
     let gitignore = root.join(".forge/.gitignore");
     let content = format!(
-        "{instructions}/*\n!{instructions}/.gitkeep\n{archive}/\nruns/\n",
-        instructions = config.workspace_instructions_dir(),
-        archive = config.workspace_archive_dir()
+        "{instructions}/*\n!{instructions}/.gitkeep\nruns/\n",
+        instructions = config.workspace_instructions_dir()
     );
     fs::write(gitignore, content)?;
 

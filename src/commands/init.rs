@@ -50,6 +50,7 @@ pub fn write_generated_files(
 fn render_default_blueprints(detected: &DetectedProject) -> Vec<(&'static str, String)> {
     let mut blueprints = vec![
         ("lint-and-test.toml", render_lint_and_test_blueprint(detected)),
+        ("verify-base.toml", render_verify_base_blueprint()),
         ("new-feature.toml", render_new_feature_blueprint(detected)),
         ("fix-bug.toml", render_fix_bug_blueprint(detected)),
         ("refactor.toml", render_refactor_blueprint(detected)),
@@ -97,10 +98,32 @@ pub fn render_config(detected: &DetectedProject) -> String {
     output.push_str("\n[workspace]\n");
     output.push_str("instructions = \"instructions\"\n");
     output.push_str("archive = \"archive\"\n");
-    output.push_str("auto_archive = true\n");
+    // Archiving is handled inside branching blueprints (archive-instruction step)
+    // so the file move rides along with the PR and nothing touches local main
+    // after the run completes. The post-run auto-archive would move the file on
+    // main and leave uncommitted changes, breaking the next run's clean-tree.
+    output.push_str("auto_archive = false\n");
     output.push_str("\n[dashboard]\n");
     output.push_str("# Frontend hasn't shipped yet, so the dashboard is opt-in for now.\n");
     output.push_str("enabled = false\n");
+    output
+}
+
+pub fn render_verify_base_blueprint() -> String {
+    let mut output = String::from(GENERATED_HEADER);
+    output.push_str("[blueprint]\n");
+    output.push_str("name = \"verify-base\"\n");
+    output.push_str(&format!(
+        "description = \"Assert local HEAD matches origin/{DEFAULT_BRANCH_VAR} before branching\"\n\n"
+    ));
+    append_command_step(
+        &mut output,
+        "verify",
+        &format!(
+            "git fetch origin {DEFAULT_BRANCH_VAR} --quiet && if [ \"$(git rev-parse HEAD)\" != \"$(git rev-parse origin/{DEFAULT_BRANCH_VAR})\" ]; then echo 'error: local HEAD differs from origin/{DEFAULT_BRANCH_VAR}. Push local commits or reset before branching — otherwise a squash-merge will absorb those commits and cause rebase conflicts on post-merge pull.' >&2; exit 1; fi"
+        ),
+        false,
+    );
     output
 }
 
@@ -159,6 +182,7 @@ fn render_branching_blueprint(
         "git diff --quiet || exit 1",
         false,
     );
+    append_blueprint_step(&mut output, "verify-base", "verify-base");
     append_command_step(
         &mut output,
         "create-branch",
@@ -192,6 +216,12 @@ fn render_branching_blueprint(
     );
     append_command_step(
         &mut output,
+        "archive-instruction",
+        "if [ -f .forge/instructions/{instruction_file} ]; then mkdir -p .forge/archive && git mv .forge/instructions/{instruction_file} .forge/archive/{instruction_file} && git commit -m 'chore: archive {instruction_file}'; fi",
+        false,
+    );
+    append_command_step(
+        &mut output,
         "push-branch",
         "git push origin {branch}",
         false,
@@ -201,7 +231,7 @@ fn render_branching_blueprint(
         &mut output,
         "create-pr",
         &format!(
-            "gh pr create --base {DEFAULT_BRANCH_VAR} --head {{branch}} --body-file .forge/pr-body.md --title \"{{commit_message}}\""
+            "gh pr create --base {DEFAULT_BRANCH_VAR} --head {{branch}} --body-file .forge/pr-body.md --title \"{{commit_message}}\" && rm -f .forge/pr-body.md"
         ),
         false,
     );
@@ -238,6 +268,8 @@ pub fn render_pr_review_blueprint(_detected: &DetectedProject) -> String {
     output.push_str(
         "description = \"Senior engineer review of a PR — review implementation, merge to the default branch, run final tests\"\n\n",
     );
+    append_command_step(&mut output, "clean-tree", "git diff --quiet && git diff --cached --quiet", false);
+    output.push('\n');
     output.push_str("[[step]]\n");
     output.push_str("type = \"agentic\"\n");
     output.push_str("name = \"review\"\n");
@@ -323,7 +355,7 @@ pub fn render_refactor_finalize_blueprint(_detected: &DetectedProject) -> String
         &mut output,
         "create-pr",
         &format!(
-            "gh pr create --base {DEFAULT_BRANCH_VAR} --head {{refactor_branch}} --body-file .forge/pr-body.md --title \"{{commit_message}}\""
+            "gh pr create --base {DEFAULT_BRANCH_VAR} --head {{refactor_branch}} --body-file .forge/pr-body.md --title \"{{commit_message}}\" && rm -f .forge/pr-body.md"
         ),
         false,
     );
@@ -462,9 +494,6 @@ pub fn ensure_instructions_gitignore(root: &Path) -> Result<(), ForgeError> {
     }
     if !updated.contains("!.forge/instructions/.gitkeep") {
         updated.push_str("!.forge/instructions/.gitkeep\n");
-    }
-    if !updated.contains(".forge/archive/") {
-        updated.push_str(".forge/archive/\n");
     }
     if !updated.contains(".forge/runs/") {
         updated.push_str(".forge/runs/\n");

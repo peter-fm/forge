@@ -31,12 +31,14 @@ fn parses_generated_refactor_blueprint() {
         &blueprint,
         &[
             "clean-tree",
+            "verify-base",
             "create-branch",
             "refactor",
             "commit-backstop",
             "verify",
             "docs-check",
             "docs-commit-backstop",
+            "archive-instruction",
             "push-branch",
             "write-pr",
             "create-pr",
@@ -55,12 +57,14 @@ fn parses_generated_new_feature_blueprint() {
         &blueprint,
         &[
             "clean-tree",
+            "verify-base",
             "create-branch",
             "implement",
             "commit-backstop",
             "verify",
             "docs-check",
             "docs-commit-backstop",
+            "archive-instruction",
             "push-branch",
             "write-pr",
             "create-pr",
@@ -77,6 +81,10 @@ fn parses_generated_new_feature_blueprint() {
         blueprint.steps.iter().any(|step| step.name == "verify"
             && step.blueprint.as_deref() == Some("lint-and-test"))
     );
+    assert!(
+        blueprint.steps.iter().any(|step| step.name == "verify-base"
+            && step.blueprint.as_deref() == Some("verify-base"))
+    );
     assert!(blueprint.steps.iter().any(|step| step.name == "docs-check"));
     assert!(
         blueprint
@@ -84,8 +92,13 @@ fn parses_generated_new_feature_blueprint() {
             .iter()
             .any(|step| step.name == "docs-check" && step.allow_failure)
     );
+    let implement = blueprint
+        .steps
+        .iter()
+        .find(|step| step.name == "implement")
+        .expect("implement step");
     assert!(
-        !blueprint.steps[2]
+        !implement
             .prompt
             .as_deref()
             .unwrap_or_default()
@@ -103,21 +116,27 @@ fn generated_fix_bug_blueprint_uses_deterministic_branching_skeleton() {
         &blueprint,
         &[
             "clean-tree",
+            "verify-base",
             "create-branch",
             "fix",
             "commit-backstop",
             "verify",
             "docs-check",
             "docs-commit-backstop",
+            "archive-instruction",
             "push-branch",
             "write-pr",
             "create-pr",
             "checkout-main",
         ],
     );
+    let fix = blueprint
+        .steps
+        .iter()
+        .find(|step| step.name == "fix")
+        .expect("fix step");
     assert!(
-        !blueprint.steps[2]
-            .prompt
+        !fix.prompt
             .as_deref()
             .unwrap_or_default()
             .contains("Commit your changes")
