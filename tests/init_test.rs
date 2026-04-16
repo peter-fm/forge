@@ -31,6 +31,11 @@ fn init_creates_forge_layout_and_gitignore_entries() {
     );
     assert!(
         dir.path()
+            .join(".forge/blueprints/verify-base.toml")
+            .exists()
+    );
+    assert!(
+        dir.path()
             .join(".forge/blueprints/new-feature.toml")
             .exists()
     );
@@ -61,14 +66,14 @@ fn init_creates_forge_layout_and_gitignore_entries() {
     let gitignore = fs::read_to_string(dir.path().join(".gitignore")).expect("read gitignore");
     assert!(gitignore.contains(".forge/instructions/*"));
     assert!(gitignore.contains("!.forge/instructions/.gitkeep"));
-    assert!(gitignore.contains(".forge/archive/"));
+    assert!(!gitignore.contains(".forge/archive/"));
     assert!(gitignore.contains(".forge/runs/"));
 
     let forge_gitignore =
         fs::read_to_string(dir.path().join(".forge/.gitignore")).expect("read forge gitignore");
     assert!(forge_gitignore.contains("instructions/*"));
     assert!(forge_gitignore.contains("!instructions/.gitkeep"));
-    assert!(forge_gitignore.contains("archive/"));
+    assert!(!forge_gitignore.contains("archive/"));
     assert!(forge_gitignore.contains("runs/"));
 
     let blueprint = fs::read_to_string(dir.path().join(".forge/blueprints/new-feature.toml"))
@@ -138,7 +143,20 @@ fn init_creates_forge_layout_and_gitignore_entries() {
         .expect("read branching blueprint");
         assert!(blueprint.contains("name = \"verify\""));
         assert!(blueprint.contains("blueprint = \"lint-and-test\""));
+        assert!(blueprint.contains("name = \"verify-base\""));
+        assert!(blueprint.contains("blueprint = \"verify-base\""));
+        assert!(blueprint.contains("name = \"archive-instruction\""));
+        assert!(blueprint.contains("git mv .forge/instructions/{instruction_file}"));
     }
+
+    let verify_base = fs::read_to_string(dir.path().join(".forge/blueprints/verify-base.toml"))
+        .expect("read verify-base blueprint");
+    assert!(verify_base.contains("name = \"verify-base\""));
+    assert!(verify_base.contains("git fetch origin {default_branch}"));
+    assert!(verify_base.contains("git rev-parse origin/{default_branch}"));
+
+    let config = fs::read_to_string(dir.path().join(".forge/config.toml")).expect("read config");
+    assert!(config.contains("auto_archive = false"));
 
     let test_blueprint = fs::read_to_string(dir.path().join(".forge/blueprints/test.toml"))
         .expect("read test blueprint");
