@@ -6,7 +6,15 @@ pub fn print_status(
     root: &Path,
     run_id: Option<&str>,
     include_completed: bool,
+    latest_only: bool,
+    limit: Option<usize>,
 ) -> Result<(), ForgeError> {
+    if run_id.is_some() && (include_completed || latest_only || limit.is_some()) {
+        return Err(ForgeError::message(
+            "when providing a run id, do not combine it with --all, --latest, or --limit",
+        ));
+    }
+
     if let Some(run_id) = run_id {
         let path = snapshot_path(root, run_id);
         if !path.exists() {
@@ -15,9 +23,14 @@ pub fn print_status(
         return print_snapshot(&read_snapshot(&path)?);
     }
 
+    let include_completed = include_completed || latest_only || limit.is_some();
     let mut snapshots = list_snapshots(root)?;
     if !include_completed {
         snapshots.retain(|snapshot| snapshot.status == "running");
+    }
+    let effective_limit = if latest_only { Some(1) } else { limit };
+    if let Some(limit) = effective_limit {
+        snapshots.truncate(limit);
     }
     if snapshots.is_empty() {
         println!("no recorded forge runs");

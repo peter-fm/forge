@@ -42,8 +42,13 @@ pub fn dispatch(cli: Cli) -> Result<(), ForgeError> {
         }
         Commands::Clean { archive, dry_run } => clean::clean_command(&root, archive, dry_run),
         Commands::Run { .. } => run::run_command(&root, &cli.command),
-        Commands::Status { run_id, all } => status::print_status(&root, run_id.as_deref(), all),
-        Commands::Resume { ref run_id, .. } => resume::resume_command(&root, run_id, &cli.command),
+        Commands::Status {
+            run_id,
+            all,
+            latest,
+            limit,
+        } => status::print_status(&root, run_id.as_deref(), all, latest, limit),
+        Commands::Resume { .. } => resume::resume_command(&root, &cli.command),
         Commands::List => list::list_blueprints(&root),
     }
 }

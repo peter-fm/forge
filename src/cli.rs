@@ -71,9 +71,15 @@ pub enum Commands {
         run_id: Option<String>,
         #[arg(long = "all")]
         all: bool,
+        #[arg(long)]
+        latest: bool,
+        #[arg(short = 'n', long = "limit")]
+        limit: Option<usize>,
     },
     Resume {
-        run_id: String,
+        run_id: Option<String>,
+        #[arg(long)]
+        latest: bool,
         #[arg(long)]
         no_dashboard: bool,
         #[arg(long, default_value_t = 8400)]

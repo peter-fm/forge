@@ -135,7 +135,13 @@ pub fn list_snapshots(root: &Path) -> Result<Vec<RunStatusSnapshot>, ForgeError>
         }
         snapshots.push(read_snapshot(&path)?);
     }
-    snapshots.sort_by(|left, right| left.id.cmp(&right.id));
+    snapshots.sort_by(|left, right| {
+        right
+            .started_at
+            .cmp(&left.started_at)
+            .then_with(|| right.updated_at.cmp(&left.updated_at))
+            .then_with(|| right.id.cmp(&left.id))
+    });
     Ok(snapshots)
 }
 

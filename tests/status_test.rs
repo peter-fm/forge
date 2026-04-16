@@ -128,6 +128,124 @@ fn forge_status_shows_multiple_runs_and_all_flag() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("run id: new-feature-a3f2"));
     assert!(stdout.contains("run id: fix-bug-b7c1"));
+    assert!(stdout.find("run id: fix-bug-b7c1") < stdout.find("run id: new-feature-a3f2"));
+}
+
+#[test]
+fn forge_status_supports_latest_and_limit() {
+    let dir = tempdir().expect("tempdir");
+    fs::create_dir_all(dir.path().join(".forge/runs")).expect("forge dir");
+
+    let snapshots = [
+        (
+            "run-old",
+            "new-feature",
+            "running",
+            "2026-03-31T13:25:00Z",
+            "2026-03-31T13:30:00Z",
+        ),
+        (
+            "run-mid",
+            "fix-bug",
+            "succeeded",
+            "2026-03-31T13:35:00Z",
+            "2026-03-31T13:40:00Z",
+        ),
+        (
+            "run-new",
+            "refactor",
+            "failed",
+            "2026-03-31T13:45:00Z",
+            "2026-03-31T13:50:00Z",
+        ),
+    ];
+
+    for (id, blueprint, status, started_at, updated_at) in snapshots {
+        let snapshot = serde_json::json!({
+            "id": id,
+            "blueprint": blueprint,
+            "instruction_file": format!("{id}.md"),
+            "agent": "codex",
+            "status": status,
+            "started_at": started_at,
+            "updated_at": updated_at,
+            "finished_at": if status == "running" { serde_json::Value::Null } else { serde_json::Value::String(updated_at.to_string()) },
+            "steps": [{ "name": "step", "status": status, "started_at": started_at, "finished_at": updated_at, "attempts": 1 }]
+        });
+        fs::write(
+            dir.path().join(".forge/runs").join(format!("{id}.json")),
+            serde_json::to_string_pretty(&snapshot).expect("serialize"),
+        )
+        .expect("write snapshot");
+    }
+
+    let output = Command::new(env!("CARGO_BIN_EXE_forge"))
+        .args(["status", "--all", "--latest"])
+        .current_dir(dir.path())
+        .output()
+        .expect("run forge status --all --latest");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("run id: run-new"));
+    assert!(!stdout.contains("run id: run-mid"));
+    assert!(!stdout.contains("run id: run-old"));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_forge"))
+        .args(["status", "--all", "-n", "2"])
+        .current_dir(dir.path())
+        .output()
+        .expect("run forge status --all -n 2");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("run id: run-new"));
+    assert!(stdout.contains("run id: run-mid"));
+    assert!(!stdout.contains("run id: run-old"));
+    assert!(stdout.find("run id: run-new") < stdout.find("run id: run-mid"));
+}
+
+#[test]
+fn forge_status_latest_and_limit_include_completed_by_default() {
+    let dir = tempdir().expect("tempdir");
+    fs::create_dir_all(dir.path().join(".forge/runs")).expect("forge dir");
+
+    let finished = serde_json::json!({
+        "id": "run-finished",
+        "blueprint": "fix-bug",
+        "instruction_file": "finished.md",
+        "agent": "codex",
+        "status": "succeeded",
+        "started_at": "2026-03-31T13:30:00Z",
+        "updated_at": "2026-03-31T13:40:00Z",
+        "finished_at": "2026-03-31T13:40:00Z",
+        "steps": [{ "name": "fix", "status": "succeeded", "started_at": "2026-03-31T13:30:00Z", "finished_at": "2026-03-31T13:40:00Z", "attempts": 1 }]
+    });
+    fs::write(
+        dir.path().join(".forge/runs/run-finished.json"),
+        serde_json::to_string_pretty(&finished).expect("serialize"),
+    )
+    .expect("write finished");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_forge"))
+        .args(["status", "--latest"])
+        .current_dir(dir.path())
+        .output()
+        .expect("run forge status --latest");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("run id: run-finished"));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_forge"))
+        .args(["status", "-n", "1"])
+        .current_dir(dir.path())
+        .output()
+        .expect("run forge status -n 1");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("run id: run-finished"));
 }
 
 #[test]

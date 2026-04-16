@@ -788,6 +788,38 @@ fn conditional_retry_step_retries_failed_previous_step() {
 }
 
 #[test]
+fn recovered_sub_blueprint_reports_success() {
+    let mut child_test = deterministic_step("test", "cargo test");
+    child_test.allow_failure = true;
+    let mut fix = agentic_step("fix-tests", "repair using {test_output}");
+    fix.max_retries = Some(2);
+    fix.condition = Some("test.exit_code != 0".to_string());
+    let child = blueprint_with_steps(vec![child_test, fix]);
+
+    let loader = MockLoader::default()
+        .with_blueprint(PathBuf::from("blueprints/lint-and-test.toml"), child);
+    let root = blueprint_with_steps(vec![blueprint_step("verify", "lint-and-test")]);
+
+    let runtime = MockRuntime::default();
+    runtime.push_command(1, "red", "");
+    runtime.push_agent(0, "fixed", "");
+    runtime.push_command(0, "green", "");
+
+    let mut engine = test_engine(runtime, loader, MemoryLogger::default());
+    let summary = engine
+        .run_blueprint(&root, &mut RunContext::new())
+        .expect("recovered child blueprint should pass");
+
+    let verify = summary
+        .steps
+        .iter()
+        .find(|step| step.name == "verify")
+        .expect("verify result should be synthesized");
+    assert_eq!(verify.status, StepStatus::Succeeded);
+    assert_eq!(verify.stdout, "green");
+}
+
+#[test]
 fn stops_retrying_after_successful_second_attempt() {
     let mut fix = agentic_step("fix-tests", "repair");
     fix.max_retries = Some(3);
@@ -1018,6 +1050,19 @@ fn cli_parses_pr_selection_flags() {
     match cli.command {
         Commands::Run { next, latest, .. } => {
             assert!(!next);
+            assert!(latest);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn cli_parses_resume_latest_flag() {
+    let cli = Cli::try_parse_from(["forge", "resume", "--latest"])
+        .expect("cli should accept resume --latest");
+    match cli.command {
+        Commands::Resume { run_id, latest, .. } => {
+            assert_eq!(run_id, None);
             assert!(latest);
         }
         other => panic!("unexpected command: {other:?}"),

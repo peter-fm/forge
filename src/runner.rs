@@ -6,7 +6,7 @@ use crate::run_id::session_uuid;
 use crate::run_status;
 use crate::{condition, vars};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -964,18 +964,35 @@ fn synthesize_parent_result(
     step_id: &str,
     child_results: &[StepResult],
 ) -> StepResult {
-    let exit_code = child_results
+    let mut seen = HashSet::new();
+    let mut effective_results = child_results
+        .iter()
+        .rev()
+        .filter(|result| seen.insert(result.step_id.clone()))
+        .cloned()
+        .collect::<Vec<_>>();
+    effective_results.reverse();
+
+    let exit_code = effective_results
         .iter()
         .map(|result| result.exit_code)
         .max()
         .unwrap_or(0);
-    let status = if child_results
+    let status = if effective_results
         .iter()
         .any(|result| result.status == StepStatus::Failed)
     {
         StepStatus::Failed
     } else {
         StepStatus::Succeeded
+    };
+    let representative = if status == StepStatus::Failed {
+        effective_results
+            .iter()
+            .rev()
+            .find(|result| result.status == StepStatus::Failed)
+    } else {
+        effective_results.last()
     };
 
     StepResult {
@@ -984,11 +1001,15 @@ fn synthesize_parent_result(
         step_type: step.step_type.clone(),
         status,
         exit_code,
-        stdout: String::new(),
-        stderr: String::new(),
+        stdout: representative
+            .map(|result| result.stdout.clone())
+            .unwrap_or_default(),
+        stderr: representative
+            .map(|result| result.stderr.clone())
+            .unwrap_or_default(),
         attempts: 1,
         agent_session_id: None,
-        log_file: None,
+        log_file: representative.and_then(|result| result.log_file.clone()),
     }
 }
 

@@ -6,26 +6,29 @@ use crate::error::ForgeError;
 use crate::logger::{JsonlRunLogger, RunLogger, RunMeta};
 use crate::model::{Blueprint, RunContext};
 use crate::parser::parse_blueprint_file;
-use crate::run_status::{read_snapshot, snapshot_path};
+use crate::run_status::{list_snapshots, read_snapshot, snapshot_path};
 use crate::runner::Engine;
 use crate::workspace::resolve_instruction_file;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command as ProcessCommand;
 
-pub fn resume_command(root: &Path, run_id: &str, command: &Commands) -> Result<(), ForgeError> {
+pub fn resume_command(root: &Path, command: &Commands) -> Result<(), ForgeError> {
     let Commands::Resume {
+        run_id,
+        latest,
         no_dashboard,
         port,
         notify,
         verbose,
-        ..
     } = command
     else {
         return Err(ForgeError::message("resume command expected"));
     };
 
-    let snapshot_file = snapshot_path(root, run_id);
+    let run_id = resolve_resume_run_id(root, run_id.as_deref(), *latest)?;
+
+    let snapshot_file = snapshot_path(root, &run_id);
     if !snapshot_file.exists() {
         return Err(ForgeError::message(format!("unknown run `{run_id}`")));
     }
@@ -55,7 +58,7 @@ pub fn resume_command(root: &Path, run_id: &str, command: &Commands) -> Result<(
         .transpose()?;
 
     let mut context = RunContext::new();
-    context.run_id = Some(run_id.to_string());
+    context.run_id = Some(run_id.clone());
     context.status_path = Some(snapshot_file);
     context.instruction_file = snapshot.instruction_file.clone();
     context.run_started_at = parse_timestamp(&snapshot.started_at)?;
@@ -65,7 +68,7 @@ pub fn resume_command(root: &Path, run_id: &str, command: &Commands) -> Result<(
     context.variables = snapshot.variables.clone();
     context
         .variables
-        .insert("run_id".to_string(), run_id.to_string());
+        .insert("run_id".to_string(), run_id.clone());
     context.step_results = snapshot
         .step_results
         .into_iter()
@@ -148,4 +151,80 @@ fn parse_timestamp(value: &str) -> Result<Option<u64>, ForgeError> {
         .parse::<u64>()
         .map_err(|error| ForgeError::message(error.to_string()))?;
     Ok(Some(epoch))
+}
+
+fn resolve_resume_run_id(
+    root: &Path,
+    run_id: Option<&str>,
+    latest: bool,
+) -> Result<String, ForgeError> {
+    match (run_id, latest) {
+        (Some(_), true) => Err(ForgeError::message(
+            "use either a run id or --latest, not both",
+        )),
+        (Some(run_id), false) => Ok(run_id.to_string()),
+        (None, false) => Err(ForgeError::message(
+            "missing run id: pass a run id or use --latest",
+        )),
+        (None, true) => {
+            let snapshots = list_snapshots(root)?;
+            let latest = snapshots
+                .first()
+                .ok_or_else(|| ForgeError::message("no recorded forge runs"))?;
+            Ok(latest.id.clone())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_resume_run_id;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn resolve_resume_run_id_supports_latest() {
+        let dir = tempdir().expect("tempdir");
+        fs::create_dir_all(dir.path().join(".forge/runs")).expect("forge runs");
+        fs::write(
+            dir.path().join(".forge/runs/older.json"),
+            serde_json::json!({
+                "id": "older",
+                "blueprint": "x",
+                "status": "failed",
+                "started_at": "2026-03-31T13:25:00Z",
+                "updated_at": "2026-03-31T13:30:00Z",
+                "finished_at": "2026-03-31T13:30:00Z",
+                "steps": []
+            })
+            .to_string(),
+        )
+        .expect("write older");
+        fs::write(
+            dir.path().join(".forge/runs/newer.json"),
+            serde_json::json!({
+                "id": "newer",
+                "blueprint": "x",
+                "status": "failed",
+                "started_at": "2026-03-31T13:35:00Z",
+                "updated_at": "2026-03-31T13:40:00Z",
+                "finished_at": "2026-03-31T13:40:00Z",
+                "steps": []
+            })
+            .to_string(),
+        )
+        .expect("write newer");
+
+        let run_id = resolve_resume_run_id(dir.path(), None, true).expect("resolve latest");
+        assert_eq!(run_id, "newer");
+    }
+
+    #[test]
+    fn resolve_resume_run_id_rejects_missing_selector() {
+        let dir = tempdir().expect("tempdir");
+        let error = resolve_resume_run_id(dir.path(), None, false).expect_err("missing selector");
+        assert!(error
+            .to_string()
+            .contains("missing run id: pass a run id or use --latest"));
+    }
 }
