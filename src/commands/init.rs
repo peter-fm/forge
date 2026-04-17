@@ -57,7 +57,10 @@ fn render_default_blueprints(detected: &DetectedProject) -> Vec<(&'static str, S
         ("build.toml", render_build_blueprint(detected)),
         ("fix-bug.toml", render_fix_bug_blueprint(detected)),
         ("pr-review.toml", render_pr_review_blueprint(detected)),
-        ("code-review.toml", render_code_review_blueprint(detected)),
+        (
+            "review-codebase.toml",
+            render_review_codebase_blueprint(detected),
+        ),
         ("phase.toml", render_phase_blueprint(detected)),
         ("finalize.toml", render_finalize_blueprint(detected)),
     ];
@@ -229,20 +232,20 @@ fn render_branching_blueprint(
     output
 }
 
-pub fn render_code_review_blueprint(_detected: &DetectedProject) -> String {
+pub fn render_review_codebase_blueprint(_detected: &DetectedProject) -> String {
     let mut output = String::from(GENERATED_HEADER);
     output.push_str("[blueprint]\n");
-    output.push_str("name = \"code-review\"\n");
+    output.push_str("name = \"review-codebase\"\n");
     output.push_str(
-        "description = \"Review an existing pull request and post feedback via GitHub\"\n\n",
+        "description = \"Sweep the codebase for dead code, unused exports, stray TODOs, placeholder stubs, and inconsistent patterns; write findings to an instruction file for later triage\"\n\n",
     );
-    append_command_step(&mut output, "checkout-pr", "gh pr checkout {pr}", false);
     output.push_str("[[step]]\n");
     output.push_str("type = \"agentic\"\n");
-    output.push_str("name = \"review\"\n");
+    output.push_str("name = \"sweep\"\n");
     output.push_str("agent = \"{target_agent}\"\n");
     output.push_str("model = \"{target_model}\"\n");
-    output.push_str(&format!("prompt = \"\"\"Review pull request #{{pr}} carefully.\n\n1. Read the PR details: `gh pr view {{pr}} --json title,body,files,commits,comments,reviews`.\n2. Read the diff against the default branch: `git diff {DEFAULT_BRANCH_VAR}...HEAD`.\n3. Review for bugs, regressions, missing tests, style inconsistencies, and design issues.\n4. Post your review with `gh pr review {{pr}}`:\n   - If you found issues, leave a comment review that explains the problems clearly.\n   - If the PR looks good, approve it with a short rationale.\n\nBe specific and reference files or behaviors when calling out problems.\"\"\"\n"));
+    output.push_str("prompt = \"\"\"Perform a hygiene review of the codebase. Surface issues for later triage — do NOT modify code in this run.\n\n1. Scan for:\n   - Dead code: functions, types, constants, or modules that are never referenced.\n   - Unused imports and exports.\n   - Stray TODO / FIXME / XXX / HACK markers — especially older ones.\n   - Placeholder or stub code: `unimplemented!()`, `todo!()`, `pass`, empty bodies, `return null // TODO`, mock returns left in real paths.\n   - Overly clever, dense, or hard-to-follow code that should be simplified.\n   - Patterns that drift from the rest of the codebase (naming, error handling, module layout).\n   - Misleading names or comments that no longer match behaviour.\n\n2. Prefer tooling where it exists:\n   - Compiler / linter warnings about dead or unused items.\n   - `git grep -nE \\\"TODO|FIXME|XXX|HACK\\\"` for markers.\n   - Language-specific dead-code tools (e.g. `cargo +nightly udeps`, `vulture`, `ts-prune`, `knip`).\n\n3. For each finding, capture:\n   - File path and approximate lines.\n   - What is wrong and why it matters.\n   - Suggested action (delete, implement, refactor, rename, clarify).\n   - Severity: blocker / cleanup / nitpick.\n\n4. Write the report to `.forge/instructions/review-codebase-{date}.md` following `.forge/INSTRUCTION_GUIDE.md` so individual findings can be handed to `build` or `fix-bug` later.\n\n5. Finish by printing the path of the report and a one-line summary (N blockers, N cleanup, N nitpicks). Do not edit source files.\"\"\"\n");
+    output.push_str("max_retries = 1\n");
     output
 }
 

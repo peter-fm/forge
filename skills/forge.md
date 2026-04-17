@@ -40,8 +40,8 @@ Common blueprints:
 - `fix-bug` — fix a bug with regression test verification, then a docs check before PR creation
 - `phase` — execute one phase of multi-phase work on a shared branch (no PR yet)
 - `finalize` — run final gates and open the PR for multi-phase work
-- `pr-review` — senior-engineer review of an open PR
-- `code-review` — review a PR and post feedback via GitHub
+- `pr-review` — senior-engineer review of an open PR, then merge and run post-merge lint/test
+- `review-codebase` — sweep the codebase for dead code, unused exports, stray TODOs, placeholder stubs, and inconsistent patterns; writes findings to `.forge/instructions/review-codebase-<date>.md` for later triage (does not modify code)
 
 ### 4. Write task instructions
 

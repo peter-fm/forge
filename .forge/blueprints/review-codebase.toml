@@ -1,0 +1,36 @@
+# forge-generated
+[blueprint]
+name = "review-codebase"
+description = "Sweep the codebase for dead code, unused exports, stray TODOs, placeholder stubs, and inconsistent patterns; write findings to an instruction file for later triage"
+
+[[step]]
+type = "agentic"
+name = "sweep"
+agent = "{target_agent}"
+model = "{target_model}"
+prompt = """Perform a hygiene review of the codebase. Surface issues for later triage — do NOT modify code in this run.
+
+1. Scan for:
+   - Dead code: functions, types, constants, or modules that are never referenced.
+   - Unused imports and exports.
+   - Stray TODO / FIXME / XXX / HACK markers — especially older ones.
+   - Placeholder or stub code: `unimplemented!()`, `todo!()`, `pass`, empty bodies, `return null // TODO`, mock returns left in real paths.
+   - Overly clever, dense, or hard-to-follow code that should be simplified.
+   - Patterns that drift from the rest of the codebase (naming, error handling, module layout).
+   - Misleading names or comments that no longer match behaviour.
+
+2. Prefer tooling where it exists:
+   - Compiler / linter warnings about dead or unused items.
+   - `git grep -nE \"TODO|FIXME|XXX|HACK\"` for markers.
+   - Language-specific dead-code tools (e.g. `cargo +nightly udeps`, `vulture`, `ts-prune`, `knip`).
+
+3. For each finding, capture:
+   - File path and approximate lines.
+   - What is wrong and why it matters.
+   - Suggested action (delete, implement, refactor, rename, clarify).
+   - Severity: blocker / cleanup / nitpick.
+
+4. Write the report to `.forge/instructions/review-codebase-{date}.md` following `.forge/INSTRUCTION_GUIDE.md` so individual findings can be handed to `build` or `fix-bug` later.
+
+5. Finish by printing the path of the report and a one-line summary (N blockers, N cleanup, N nitpicks). Do not edit source files."""
+max_retries = 1

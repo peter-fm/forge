@@ -118,13 +118,13 @@ fn generated_fix_bug_blueprint_uses_deterministic_branching_skeleton() {
 }
 
 #[test]
-fn parses_generated_code_review_blueprint() {
+fn parses_generated_review_codebase_blueprint() {
     let dir = init_generated_project();
-    let path = dir.path().join(".forge/blueprints/code-review.toml");
-    let blueprint = parse_blueprint_file(path).expect("code-review should parse");
+    let path = dir.path().join(".forge/blueprints/review-codebase.toml");
+    let blueprint = parse_blueprint_file(path).expect("review-codebase should parse");
 
-    assert_eq!(blueprint.blueprint.name, "code-review");
-    assert_branching_step_sequence(&blueprint, &["checkout-pr", "review"]);
+    assert_eq!(blueprint.blueprint.name, "review-codebase");
+    assert_branching_step_sequence(&blueprint, &["sweep"]);
 }
 
 #[test]

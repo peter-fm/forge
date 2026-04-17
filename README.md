@@ -84,7 +84,7 @@ This creates:
 │   ├── finalize.toml        # finalize multi-phase work and open the PR
 │   ├── test.toml            # run the detected test command directly
 │   ├── pr-review.toml       # review, merge, and verify an open PR
-│   └── code-review.toml     # review a PR and post feedback via GitHub
+│   └── review-codebase.toml # sweep the codebase for dead code, TODOs, and placeholder stubs
 ├── instructions/            # task briefs go here (gitignored)
 │   └── .gitkeep
 ├── archive/                 # completed instructions (gitignored)
@@ -157,7 +157,7 @@ Auto-detect project type and create `.forge/` with config and default blueprints
 
 ```
 Arguments:
-  [BLUEPRINT_NAME]      Blueprint name (build, fix-bug, phase, finalize, pr-review, code-review, etc.)
+  [BLUEPRINT_NAME]      Blueprint name (build, fix-bug, phase, finalize, pr-review, review-codebase, etc.)
 
 Options:
   --blueprint <path>      Run a blueprint from an explicit file path

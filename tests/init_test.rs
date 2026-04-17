@@ -39,7 +39,7 @@ fn init_creates_forge_layout_and_gitignore_entries() {
     assert!(dir.path().join(".forge/blueprints/pr-review.toml").exists());
     assert!(
         dir.path()
-            .join(".forge/blueprints/code-review.toml")
+            .join(".forge/blueprints/review-codebase.toml")
             .exists()
     );
     assert!(dir.path().join(".forge/blueprints/phase.toml").exists());
@@ -85,12 +85,14 @@ fn init_creates_forge_layout_and_gitignore_entries() {
     assert!(pr_review.contains("name = \"post-merge-verify\""));
     assert!(pr_review.contains("blueprint = \"lint-and-test\""));
 
-    let code_review = fs::read_to_string(dir.path().join(".forge/blueprints/code-review.toml"))
-        .expect("read code-review blueprint");
-    assert!(code_review.contains("name = \"code-review\""));
-    assert!(code_review.contains("name = \"checkout-pr\""));
-    assert!(code_review.contains("command = \"gh pr checkout {pr}\""));
-    assert!(code_review.contains("name = \"review\""));
+    let review_codebase =
+        fs::read_to_string(dir.path().join(".forge/blueprints/review-codebase.toml"))
+            .expect("read review-codebase blueprint");
+    assert!(review_codebase.contains("name = \"review-codebase\""));
+    assert!(review_codebase.contains("name = \"sweep\""));
+    assert!(review_codebase.contains("dead code"));
+    assert!(review_codebase.contains(".forge/instructions/review-codebase-{date}.md"));
+    assert!(!review_codebase.contains("gh pr checkout"));
 
     let phase = fs::read_to_string(dir.path().join(".forge/blueprints/phase.toml"))
         .expect("read phase blueprint");
