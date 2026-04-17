@@ -10,7 +10,7 @@ fn forge_status_prints_snapshot_summary() {
     let dir = tempdir().expect("tempdir");
     fs::create_dir_all(dir.path().join(".forge/runs")).expect("forge dir");
     let mut context = RunContext::new();
-    context.run_id = Some("new-feature-a3f2".to_string());
+    context.run_id = Some("build-a3f2".to_string());
     context.instruction_file = Some("add-status-output.2026-03-31T1325.codex.md".to_string());
     context.run_started_at = Some(10);
     context
@@ -22,7 +22,7 @@ fn forge_status_prints_snapshot_summary() {
         "step-0001".to_string(),
         StepResult {
             step_id: "step-0001".to_string(),
-            name: "implement".to_string(),
+            name: "build".to_string(),
             step_type: StepType::Agentic,
             status: StepStatus::Succeeded,
             exit_code: 0,
@@ -34,17 +34,17 @@ fn forge_status_prints_snapshot_summary() {
         },
     );
     write_snapshot(
-        &dir.path().join(".forge/runs/new-feature-a3f2.json"),
+        &dir.path().join(".forge/runs/build-a3f2.json"),
         &Blueprint {
             blueprint: BlueprintMeta {
-                name: "new-feature".to_string(),
+                name: "build".to_string(),
                 description: "x".to_string(),
                 repos: Vec::new(),
             },
             steps: Vec::new(),
-            source_path: Some(dir.path().join(".forge/blueprints/new-feature.toml")),
+            source_path: Some(dir.path().join(".forge/blueprints/build.toml")),
         },
-        &["implement".to_string(), "test".to_string()],
+        &["build".to_string(), "test".to_string()],
         &context,
         Some("step-0002"),
         "running",
@@ -59,13 +59,13 @@ fn forge_status_prints_snapshot_summary() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("run id: new-feature-a3f2"));
-    assert!(stdout.contains("blueprint: new-feature"));
+    assert!(stdout.contains("run id: build-a3f2"));
+    assert!(stdout.contains("blueprint: build"));
     assert!(stdout.contains("status: running"));
     assert!(stdout.contains("instruction file: add-status-output.2026-03-31T1325.codex.md"));
     assert!(stdout.contains("agent: codex"));
     assert!(stdout.contains("current step: test"));
-    assert!(stdout.contains("implement: succeeded"));
+    assert!(stdout.contains("build: succeeded"));
     assert!(stdout.contains("test: running"));
 }
 
@@ -75,15 +75,15 @@ fn forge_status_shows_multiple_runs_and_all_flag() {
     fs::create_dir_all(dir.path().join(".forge/runs")).expect("forge dir");
 
     let running = serde_json::json!({
-        "id": "new-feature-a3f2",
-        "blueprint": "new-feature",
+        "id": "build-a3f2",
+        "blueprint": "build",
         "instruction_file": "task-one.2026-03-31T1325.codex.md",
         "agent": "codex",
         "status": "running",
         "started_at": "2026-03-31T13:25:00Z",
         "updated_at": "2026-03-31T13:30:00Z",
         "finished_at": null,
-        "steps": [{ "name": "implement", "status": "running", "started_at": "2026-03-31T13:25:00Z", "finished_at": null, "attempts": 1 }]
+        "steps": [{ "name": "build", "status": "running", "started_at": "2026-03-31T13:25:00Z", "finished_at": null, "attempts": 1 }]
     });
     let finished = serde_json::json!({
         "id": "fix-bug-b7c1",
@@ -97,7 +97,7 @@ fn forge_status_shows_multiple_runs_and_all_flag() {
         "steps": [{ "name": "fix", "status": "succeeded", "started_at": "2026-03-31T13:30:00Z", "finished_at": "2026-03-31T13:40:00Z", "attempts": 1 }]
     });
     fs::write(
-        dir.path().join(".forge/runs/new-feature-a3f2.json"),
+        dir.path().join(".forge/runs/build-a3f2.json"),
         serde_json::to_string_pretty(&running).expect("serialize"),
     )
     .expect("write running");
@@ -115,7 +115,7 @@ fn forge_status_shows_multiple_runs_and_all_flag() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("run id: new-feature-a3f2"));
+    assert!(stdout.contains("run id: build-a3f2"));
     assert!(!stdout.contains("run id: fix-bug-b7c1"));
 
     let output = Command::new(env!("CARGO_BIN_EXE_forge"))
@@ -126,9 +126,9 @@ fn forge_status_shows_multiple_runs_and_all_flag() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("run id: new-feature-a3f2"));
+    assert!(stdout.contains("run id: build-a3f2"));
     assert!(stdout.contains("run id: fix-bug-b7c1"));
-    assert!(stdout.find("run id: fix-bug-b7c1") < stdout.find("run id: new-feature-a3f2"));
+    assert!(stdout.find("run id: fix-bug-b7c1") < stdout.find("run id: build-a3f2"));
 }
 
 #[test]
@@ -139,7 +139,7 @@ fn forge_status_supports_latest_and_limit() {
     let snapshots = [
         (
             "run-old",
-            "new-feature",
+            "build",
             "running",
             "2026-03-31T13:25:00Z",
             "2026-03-31T13:30:00Z",
@@ -153,7 +153,7 @@ fn forge_status_supports_latest_and_limit() {
         ),
         (
             "run-new",
-            "refactor",
+            "phase",
             "failed",
             "2026-03-31T13:45:00Z",
             "2026-03-31T13:50:00Z",
@@ -253,8 +253,8 @@ fn forge_list_prints_available_blueprints() {
     let dir = tempdir().expect("tempdir");
     fs::create_dir_all(dir.path().join(".forge/blueprints/common")).expect("blueprints");
     fs::write(
-        dir.path().join(".forge/blueprints/new-feature.toml"),
-        "[blueprint]\nname = \"new-feature\"\ndescription = \"x\"\n",
+        dir.path().join(".forge/blueprints/build.toml"),
+        "[blueprint]\nname = \"build\"\ndescription = \"x\"\n",
     )
     .expect("write blueprint");
     fs::write(
@@ -272,5 +272,5 @@ fn forge_list_prints_available_blueprints() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("common/lint"));
-    assert!(stdout.contains("new-feature"));
+    assert!(stdout.contains("build"));
 }

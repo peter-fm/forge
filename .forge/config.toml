@@ -5,7 +5,7 @@ name = "forge"
 
 [commands]
 test = "cargo test"
-lint = "cargo clippy -- -D warnings"
+lint = "cargo fmt --check && cargo clippy -- -D warnings"
 build = "cargo build"
 
 [agent]
@@ -19,7 +19,7 @@ gitignore = true
 [workspace]
 instructions = "instructions"
 archive = "archive"
-auto_archive = true
+auto_archive = false
 
 [dashboard]
 # Frontend hasn't shipped yet, so the dashboard is opt-in for now.

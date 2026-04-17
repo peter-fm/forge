@@ -6,6 +6,7 @@ use std::path::Path;
 
 const GENERATED_HEADER: &str = "# forge-generated\n";
 const DEFAULT_BRANCH_VAR: &str = "{default_branch}";
+const INSTRUCTION_GUIDE: &str = include_str!("instruction_guide.md");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InitOptions {
@@ -41,6 +42,8 @@ pub fn write_generated_files(
         )?;
     }
 
+    write_instruction_guide(&root.join(".forge/INSTRUCTION_GUIDE.md"), force)?;
+
     let config = crate::config::load_forge_config_str(&render_config(detected))?;
     ensure_workspace_layout(root, &config)?;
 
@@ -51,19 +54,12 @@ fn render_default_blueprints(detected: &DetectedProject) -> Vec<(&'static str, S
     let mut blueprints = vec![
         ("lint-and-test.toml", render_lint_and_test_blueprint(detected)),
         ("verify-base.toml", render_verify_base_blueprint()),
-        ("new-feature.toml", render_new_feature_blueprint(detected)),
+        ("build.toml", render_build_blueprint(detected)),
         ("fix-bug.toml", render_fix_bug_blueprint(detected)),
-        ("refactor.toml", render_refactor_blueprint(detected)),
         ("pr-review.toml", render_pr_review_blueprint(detected)),
         ("code-review.toml", render_code_review_blueprint(detected)),
-        (
-            "refactor-phase.toml",
-            render_refactor_phase_blueprint(detected),
-        ),
-        (
-            "refactor-finalize.toml",
-            render_refactor_finalize_blueprint(detected),
-        ),
+        ("phase.toml", render_phase_blueprint(detected)),
+        ("finalize.toml", render_finalize_blueprint(detected)),
     ];
     if detected.commands.test.is_some() {
         blueprints.push(("test.toml", render_test_blueprint(detected)));
@@ -127,13 +123,13 @@ pub fn render_verify_base_blueprint() -> String {
     output
 }
 
-pub fn render_new_feature_blueprint(detected: &DetectedProject) -> String {
+pub fn render_build_blueprint(detected: &DetectedProject) -> String {
     render_branching_blueprint(
         detected,
-        "new-feature",
-        "Implement a new feature with lint and test gates",
-        "implement",
-        "Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Implement the feature described there. Make sure to add tests for new functionality.",
+        "build",
+        "Implement a task (feature or refactor) with lint and test gates",
+        "build",
+        "Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Implement the task described there. The instruction file defines scope — whether new behaviour, a refactor that preserves behaviour, or something else. Follow what it says.",
         Some(2),
     )
 }
@@ -146,17 +142,6 @@ pub fn render_fix_bug_blueprint(detected: &DetectedProject) -> String {
         "fix",
         "Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Fix the bug described there. Add a regression test that would have caught this bug.",
         Some(3),
-    )
-}
-
-pub fn render_refactor_blueprint(detected: &DetectedProject) -> String {
-    render_branching_blueprint(
-        detected,
-        "refactor",
-        "Refactor code with verification gates",
-        "refactor",
-        "Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Refactor the code described there without changing intended behavior.",
-        None,
     )
 }
 
@@ -294,17 +279,17 @@ pub fn render_pr_review_blueprint(_detected: &DetectedProject) -> String {
     output
 }
 
-pub fn render_refactor_phase_blueprint(_detected: &DetectedProject) -> String {
+pub fn render_phase_blueprint(_detected: &DetectedProject) -> String {
     let mut output = String::from(GENERATED_HEADER);
     output.push_str("[blueprint]\n");
-    output.push_str("name = \"refactor-phase\"\n");
+    output.push_str("name = \"phase\"\n");
     output.push_str(
-        "description = \"Execute a single implementation phase of a multi-phase refactor\"\n\n",
+        "description = \"Execute a single implementation phase of multi-phase work\"\n\n",
     );
     append_command_step(
         &mut output,
         "checkout-or-create-branch",
-        "git checkout {refactor_branch} 2>/dev/null || git checkout -b {refactor_branch}",
+        "git checkout {phase_branch} 2>/dev/null || git checkout -b {phase_branch}",
         false,
     );
     output.push_str("[[step]]\n");
@@ -312,7 +297,7 @@ pub fn render_refactor_phase_blueprint(_detected: &DetectedProject) -> String {
     output.push_str("name = \"implement-phase\"\n");
     output.push_str("agent = \"{target_agent}\"\n");
     output.push_str("model = \"{target_model}\"\n");
-    output.push_str("prompt = \"\"\"Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Implement this refactor phase without changing intended behavior outside the scoped phase.\"\"\"\n\n");
+    output.push_str("prompt = \"\"\"Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Implement this phase. Stay within the scope defined in the instruction file and do not change intended behavior outside that scope.\"\"\"\n\n");
     append_command_step(
         &mut output,
         "commit-backstop",
@@ -323,17 +308,17 @@ pub fn render_refactor_phase_blueprint(_detected: &DetectedProject) -> String {
     output
 }
 
-pub fn render_refactor_finalize_blueprint(_detected: &DetectedProject) -> String {
+pub fn render_finalize_blueprint(_detected: &DetectedProject) -> String {
     let mut output = String::from(GENERATED_HEADER);
     output.push_str("[blueprint]\n");
-    output.push_str("name = \"refactor-finalize\"\n");
+    output.push_str("name = \"finalize\"\n");
     output.push_str(
-        "description = \"Finalize a multi-phase refactor and open the pull request\"\n\n",
+        "description = \"Finalize multi-phase work and open the pull request\"\n\n",
     );
     append_command_step(
         &mut output,
         "checkout-branch",
-        "git checkout {refactor_branch}",
+        "git checkout {phase_branch}",
         false,
     );
     append_blueprint_step(&mut output, "final-verify", "lint-and-test");
@@ -347,7 +332,7 @@ pub fn render_refactor_finalize_blueprint(_detected: &DetectedProject) -> String
     append_command_step(
         &mut output,
         "push-branch",
-        "git push origin {refactor_branch}",
+        "git push origin {phase_branch}",
         false,
     );
     append_write_pr_steps(&mut output);
@@ -355,7 +340,7 @@ pub fn render_refactor_finalize_blueprint(_detected: &DetectedProject) -> String
         &mut output,
         "create-pr",
         &format!(
-            "gh pr create --base {DEFAULT_BRANCH_VAR} --head {{refactor_branch}} --body-file .forge/pr-body.md --title \"{{commit_message}}\" && rm -f .forge/pr-body.md"
+            "gh pr create --base {DEFAULT_BRANCH_VAR} --head {{phase_branch}} --body-file .forge/pr-body.md --title \"{{commit_message}}\" && rm -f .forge/pr-body.md"
         ),
         false,
     );
@@ -503,6 +488,15 @@ pub fn ensure_instructions_gitignore(root: &Path) -> Result<(), ForgeError> {
         fs::write(path, updated)?;
     }
 
+    Ok(())
+}
+
+fn write_instruction_guide(path: &Path, force: bool) -> Result<(), ForgeError> {
+    if path.exists() && !force {
+        // Leave user-edited guides alone unless explicitly forced.
+        return Ok(());
+    }
+    fs::write(path, INSTRUCTION_GUIDE)?;
     Ok(())
 }
 

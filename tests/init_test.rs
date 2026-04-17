@@ -34,33 +34,21 @@ fn init_creates_forge_layout_and_gitignore_entries() {
             .join(".forge/blueprints/verify-base.toml")
             .exists()
     );
-    assert!(
-        dir.path()
-            .join(".forge/blueprints/new-feature.toml")
-            .exists()
-    );
+    assert!(dir.path().join(".forge/blueprints/build.toml").exists());
     assert!(dir.path().join(".forge/blueprints/fix-bug.toml").exists());
-    assert!(dir.path().join(".forge/blueprints/refactor.toml").exists());
     assert!(dir.path().join(".forge/blueprints/pr-review.toml").exists());
     assert!(
         dir.path()
             .join(".forge/blueprints/code-review.toml")
             .exists()
     );
-    assert!(
-        dir.path()
-            .join(".forge/blueprints/refactor-phase.toml")
-            .exists()
-    );
-    assert!(
-        dir.path()
-            .join(".forge/blueprints/refactor-finalize.toml")
-            .exists()
-    );
+    assert!(dir.path().join(".forge/blueprints/phase.toml").exists());
+    assert!(dir.path().join(".forge/blueprints/finalize.toml").exists());
     assert!(dir.path().join(".forge/blueprints/test.toml").exists());
     assert!(dir.path().join(".forge/instructions/.gitkeep").exists());
     assert!(dir.path().join(".forge/archive").exists());
     assert!(dir.path().join(".forge/.gitignore").exists());
+    assert!(dir.path().join(".forge/INSTRUCTION_GUIDE.md").exists());
     assert!(!dir.path().join("AGENTS.md").exists());
 
     let gitignore = fs::read_to_string(dir.path().join(".gitignore")).expect("read gitignore");
@@ -76,8 +64,8 @@ fn init_creates_forge_layout_and_gitignore_entries() {
     assert!(!forge_gitignore.contains("archive/"));
     assert!(forge_gitignore.contains("runs/"));
 
-    let blueprint = fs::read_to_string(dir.path().join(".forge/blueprints/new-feature.toml"))
-        .expect("read new-feature blueprint");
+    let blueprint = fs::read_to_string(dir.path().join(".forge/blueprints/build.toml"))
+        .expect("read build blueprint");
     assert!(blueprint.contains("Read your task instructions from {instruction_path}."));
     assert!(blueprint.contains("type = \"blueprint\""));
     assert!(blueprint.contains("blueprint = \"lint-and-test\""));
@@ -104,22 +92,22 @@ fn init_creates_forge_layout_and_gitignore_entries() {
     assert!(code_review.contains("command = \"gh pr checkout {pr}\""));
     assert!(code_review.contains("name = \"review\""));
 
-    let refactor_phase =
-        fs::read_to_string(dir.path().join(".forge/blueprints/refactor-phase.toml"))
-            .expect("read refactor-phase blueprint");
-    assert!(refactor_phase.contains("name = \"refactor-phase\""));
-    assert!(refactor_phase.contains("name = \"checkout-or-create-branch\""));
-    assert!(refactor_phase.contains("name = \"implement-phase\""));
-    assert!(refactor_phase.contains("name = \"commit-backstop\""));
-    assert!(refactor_phase.contains("name = \"verify\""));
-    assert!(refactor_phase.contains("type = \"blueprint\""));
-    assert!(refactor_phase.contains("blueprint = \"lint-and-test\""));
+    let phase = fs::read_to_string(dir.path().join(".forge/blueprints/phase.toml"))
+        .expect("read phase blueprint");
+    assert!(phase.contains("name = \"phase\""));
+    assert!(phase.contains("name = \"checkout-or-create-branch\""));
+    assert!(phase.contains("name = \"implement-phase\""));
+    assert!(phase.contains("name = \"commit-backstop\""));
+    assert!(phase.contains("name = \"verify\""));
+    assert!(phase.contains("type = \"blueprint\""));
+    assert!(phase.contains("blueprint = \"lint-and-test\""));
+    assert!(phase.contains("{phase_branch}"));
 
-    let refactor_finalize =
-        fs::read_to_string(dir.path().join(".forge/blueprints/refactor-finalize.toml"))
-            .expect("read refactor-finalize blueprint");
-    assert!(refactor_finalize.contains("name = \"final-verify\""));
-    assert!(refactor_finalize.contains("blueprint = \"lint-and-test\""));
+    let finalize = fs::read_to_string(dir.path().join(".forge/blueprints/finalize.toml"))
+        .expect("read finalize blueprint");
+    assert!(finalize.contains("name = \"final-verify\""));
+    assert!(finalize.contains("blueprint = \"lint-and-test\""));
+    assert!(finalize.contains("{phase_branch}"));
 
     let lint_and_test =
         fs::read_to_string(dir.path().join(".forge/blueprints/lint-and-test.toml"))
@@ -134,7 +122,7 @@ fn init_creates_forge_layout_and_gitignore_entries() {
     assert!(lint_and_test.contains("{test.log_file}"));
     assert!(lint_and_test.contains("{test_command}"));
 
-    for branching in ["new-feature", "fix-bug", "refactor"] {
+    for branching in ["build", "fix-bug"] {
         let blueprint = fs::read_to_string(
             dir.path()
                 .join(".forge/blueprints")
@@ -177,7 +165,7 @@ fn init_refuses_to_overwrite_manual_blueprint_without_force() {
     .expect("write cargo");
     fs::create_dir_all(dir.path().join(".forge/blueprints")).expect("blueprints");
     fs::write(
-        dir.path().join(".forge/blueprints/new-feature.toml"),
+        dir.path().join(".forge/blueprints/build.toml"),
         "[blueprint]\nname = \"manual\"\ndescription = \"manual\"\n",
     )
     .expect("write manual blueprint");
@@ -191,7 +179,7 @@ fn init_refuses_to_overwrite_manual_blueprint_without_force() {
     )
     .expect_err("init should refuse overwrite");
 
-    assert!(error.to_string().contains("new-feature.toml"));
+    assert!(error.to_string().contains("build.toml"));
 }
 
 #[test]

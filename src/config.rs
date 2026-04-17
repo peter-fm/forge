@@ -389,7 +389,7 @@ fn resolve_commit_message(summary: Option<&TaskSummary>, branch: Option<&str>) -
 
 fn branch_name_from_slug(blueprint: &str, slug: &str) -> String {
     match blueprint {
-        "implement-feature" | "new-feature" => format!("feat/{slug}"),
+        "build" => format!("feat/{slug}"),
         "fix-bug" => format!("fix/{slug}"),
         _ => format!("work/{slug}"),
     }
@@ -438,7 +438,7 @@ mod tests {
 
         let config = load_forge_config_str("").expect("config should parse");
         let command = Commands::Run {
-            blueprint_name: Some("new-feature".to_string()),
+            blueprint_name: Some("build".to_string()),
             blueprint: None,
             repo: None,
             task: Some("Add Admin API".to_string()),
@@ -534,7 +534,7 @@ mod tests {
 
         let config = load_forge_config_str("").expect("config should parse");
         let command = Commands::Run {
-            blueprint_name: Some("new-feature".to_string()),
+            blueprint_name: Some("build".to_string()),
             blueprint: None,
             repo: None,
             task: Some("Add Admin API".to_string()),
@@ -578,7 +578,7 @@ mod tests {
     fn auto_branch_name_uses_generic_hashed_prefixes() {
         assert_eq!(
             auto_branch_name(
-                "implement-feature",
+                "build",
                 Some("Add verbose flag to the command line"),
                 None,
                 None,

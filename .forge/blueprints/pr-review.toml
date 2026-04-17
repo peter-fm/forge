@@ -4,6 +4,12 @@ name = "pr-review"
 description = "Senior engineer review of a PR — review implementation, merge to the default branch, run final tests"
 
 [[step]]
+type = "deterministic"
+name = "clean-tree"
+command = "git diff --quiet && git diff --cached --quiet"
+
+
+[[step]]
 type = "agentic"
 name = "review"
 agent = "codex"
@@ -61,12 +67,7 @@ name = "checkout-main"
 command = "git checkout {default_branch} && git pull"
 
 [[step]]
-type = "deterministic"
-name = "post-merge-test"
-command = "cargo test"
+type = "blueprint"
+name = "post-merge-verify"
+blueprint = "lint-and-test"
 
-[[step]]
-type = "deterministic"
-name = "post-merge-lint"
-command = "cargo clippy -- -D warnings"
-allow_failure = true

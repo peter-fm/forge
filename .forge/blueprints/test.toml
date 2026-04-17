@@ -1,9 +1,34 @@
 # forge-generated
 [blueprint]
 name = "test"
-description = "Run the project's test command"
+description = "Run the project's test command and try to fix failures"
 
 [[step]]
 type = "deterministic"
 name = "test"
 command = "cargo test"
+allow_failure = true
+
+[[step]]
+type = "agentic"
+name = "fix-tests"
+agent = "{target_agent}"
+model = "{target_model}"
+prompt = """The test step failed.
+
+Read the failing test log first: {test.log_file}
+The exact test command is: {test_command}
+
+Requirements:
+1. Work from the repo root.
+2. Read the log before changing anything.
+3. Fix only the failures shown by that test step.
+4. Reproduce with the same command before making broader guesses.
+5. Do not substitute a different test command unless the log makes clear that a narrower repro is needed after you have read the failing output.
+6. Do not change functionality outside what is required to fix the failing tests.
+7. Do not edit unrelated files such as Forge blueprints/instructions unless the failure is in those files.
+
+After making changes, rerun exactly: {test_command}"""
+condition = "test.exit_code != 0"
+max_retries = 2
+

@@ -6,7 +6,7 @@ When dogfooding these workflows in the `forge` repository itself, replace `main`
 
 ## 1. Docs Check + PR Description Steps (added to all branching blueprints)
 
-Every blueprint that creates a branch (new-feature, fix-bug, refactor) should end with these steps after tests pass:
+Every blueprint that creates a branch (build, fix-bug) should end with these steps after tests pass:
 
 ```toml
 [[step]]
@@ -248,7 +248,7 @@ command = "{test_command}"
 
 ## Questions for Peter
 
-1. Should PR review be auto-triggered after new-feature/fix-bug/refactor complete? Or always manually run?
+1. Should PR review be auto-triggered after build/fix-bug/finalize complete? Or always manually run?
 2. Should the review agent be a different model/agent than the implementing one? (Different perspective = better review)
 3. For parallel agent PRs, should there be a queue/ordering mechanism, or just "merge and resolve conflicts as you go"?
 4. `forge init` now generates `pr-review.toml` by default.

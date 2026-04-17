@@ -1,12 +1,17 @@
 # forge-generated
 [blueprint]
-name = "new-feature"
-description = "Implement a new feature with lint and test gates"
+name = "build"
+description = "Implement a task (feature or refactor) with lint and test gates"
 
 [[step]]
 type = "deterministic"
 name = "clean-tree"
 command = "git diff --quiet || exit 1"
+
+[[step]]
+type = "blueprint"
+name = "verify-base"
+blueprint = "verify-base"
 
 [[step]]
 type = "deterministic"
@@ -15,10 +20,10 @@ command = "git checkout -b {branch}"
 
 [[step]]
 type = "agentic"
-name = "implement"
+name = "build"
 agent = "{target_agent}"
 model = "{target_model}"
-prompt = """Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Implement the feature described there. Make sure to add tests for new functionality."""
+prompt = """Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Implement the task described there. The instruction file defines scope — whether new behaviour, a refactor that preserves behaviour, or something else. Follow what it says."""
 max_retries = 2
 
 [[step]]
@@ -27,34 +32,9 @@ name = "commit-backstop"
 command = "git add -A && git diff --cached --quiet || git commit -m \"{commit_message}\""
 
 [[step]]
-type = "deterministic"
-name = "lint"
-command = "cargo clippy -- -D warnings"
-allow_failure = true
-
-[[step]]
-type = "agentic"
-name = "fix-lint"
-agent = "{target_agent}"
-model = "{target_model}"
-prompt = """The linter reported errors. Run the lint command again to see the failures, then fix them. Only fix lint issues, do not change functionality."""
-condition = "lint.exit_code != 0"
-max_retries = 2
-
-[[step]]
-type = "deterministic"
-name = "test"
-command = "cargo test"
-allow_failure = true
-
-[[step]]
-type = "agentic"
-name = "fix-tests"
-agent = "{target_agent}"
-model = "{target_model}"
-prompt = """The tests failed. Run the test command again to see the specific failures, then fix them. Only fix test failures, do not change functionality."""
-condition = "test.exit_code != 0"
-max_retries = 2
+type = "blueprint"
+name = "verify"
+blueprint = "lint-and-test"
 
 [[step]]
 type = "agentic"
@@ -86,6 +66,11 @@ command = "git add -A && git diff --cached --quiet || git commit -m \"docs: upda
 
 [[step]]
 type = "deterministic"
+name = "archive-instruction"
+command = "if [ -f .forge/instructions/{instruction_file} ]; then mkdir -p .forge/archive && git mv .forge/instructions/{instruction_file} .forge/archive/{instruction_file} && git commit -m 'chore: archive {instruction_file}'; fi"
+
+[[step]]
+type = "deterministic"
 name = "push-branch"
 command = "git push origin {branch}"
 
@@ -110,7 +95,7 @@ Do not create the PR yourself. Only write the contents for `.forge/pr-body.md`."
 [[step]]
 type = "deterministic"
 name = "create-pr"
-command = "gh pr create --base {default_branch} --head {branch} --body-file .forge/pr-body.md --title \"{commit_message}\""
+command = "gh pr create --base {default_branch} --head {branch} --body-file .forge/pr-body.md --title \"{commit_message}\" && rm -f .forge/pr-body.md"
 
 [[step]]
 type = "deterministic"

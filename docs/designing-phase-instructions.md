@@ -23,40 +23,39 @@ The instruction file is the direct input to the implementing agent. There is no 
 
 Instruction files are typically gitignored (the default forge init sets `.forge/instructions/` as ignored) and treated as working files, not tracked artefacts. The durable record of what a phase said is the commit it produced plus the auto-archived copy in `.forge/archive/`, not the file on the working tree.
 
-## The refactor-phase blueprint
+## The phase blueprint
 
-For architectural / foundational phases, forge ships a blueprint called `refactor-phase` at `.forge/blueprints/refactor-phase.toml`. It has five steps, in order:
+For architectural / foundational phases, forge ships a blueprint called `phase` at `.forge/blueprints/phase.toml`. It has four steps, in order:
 
 1. **`checkout-or-create-branch`** (deterministic)
-   `git checkout {refactor_branch} 2>/dev/null || git checkout -b {refactor_branch}`
-   Lands the working tree on the right branch. Idempotent — if the branch already exists, it checks it out; otherwise it creates it.
+   `git checkout {phase_branch} 2>/dev/null || git checkout -b {phase_branch}`
+   Lands the working tree on the shared phase branch. Idempotent — if the branch already exists, it checks it out; otherwise it creates it. Every phase in the sequence uses the same branch.
 
 2. **`implement-phase`** (agentic)
-   Dispatches the target agent against `{instruction_path}` with a prompt that says "read your task instructions from this file and implement this refactor phase without changing intended behavior outside the scoped phase." This is the step that does the work. The agent owns the solution.
+   Dispatches the target agent against `{instruction_path}` with a prompt that says "read your task instructions from this file and implement this phase, staying within the scope defined in the instruction file." This is the step that does the work. The agent owns the solution.
 
 3. **`commit-backstop`** (deterministic)
    `git add -A && git diff --cached --quiet || git commit -m "{commit_message}"`
    Safety net. If the agent implemented changes but forgot to commit, this backstop commits them. If the diff is empty (agent already committed), it's a no-op. You never end a phase with uncommitted work sitting in the index.
 
-4. **`test`** (deterministic, `allow_failure = true`)
-   `cargo test` (or whatever the workspace's detected test command is). Runs the tests. `allow_failure = true` means a test failure does not abort the run — it just sets a non-zero exit code that the next step keys off.
+4. **`verify`** (sub-blueprint — `lint-and-test`)
+   Runs the lint and test gates with retry-on-failure baked in. If lint or tests fail, the sub-blueprint dispatches the agent to fix them, up to the configured retry count, and re-runs the failing gate.
 
-5. **`fix-tests`** (agentic, `condition = "test.exit_code != 0"`, `max_retries = 2`)
-   Only runs if step 4 failed. Tells the agent "tests failed, run the test command to see the failures, fix them, don't change functionality". Retried up to twice. If it still fails, the run ends with a failure report.
+The shape is: deterministic checkout, agentic implement, deterministic commit, verification sub-blueprint. The gates bracket the agentic work so drift is caught immediately.
 
-The shape is: deterministic checkout, agentic implement, deterministic commit, deterministic test gate, agentic fix-test loop. The gates bracket the agentic work so drift is caught immediately.
+Once every phase has landed on the shared branch, run `forge run finalize --var phase_branch=<branch>` to run the final verification, the docs check, and open the PR.
 
 ## Variables
 
-`refactor-phase` is parameterised by:
+`phase` is parameterised by:
 
-- `{refactor_branch}` — the branch name to check out or create. Passed via `--var refactor_branch=<name>`.
+- `{phase_branch}` — the branch name to check out or create. Passed via `--var phase_branch=<name>`. Reused across every phase in the sequence so the work accumulates on one branch.
 - `{target_agent}` — which agent to dispatch. Defaults from workspace `.forge/config.toml` `[agent] default`. Can be overridden via `--var target_agent=<name>` or the top-level `--agent` flag.
 - `{target_model}` — which model to run. Defaults from workspace `.forge/config.toml` `[agent] model`. Can be overridden via `--var target_model=<name>` or `--model`.
 - `{instruction_path}` — resolved from `--instruction <file>`. See below.
 - `{commit_message}` — the backstop commit message, passed via `--var commit_message="..."`.
 
-For deskjob, `.forge/config.toml` sets codex + gpt-5.4 as the default agent and model, so you typically only need to supply `refactor_branch`, `instruction`, and `commit_message` at the CLI.
+Typical usage only needs `phase_branch`, `instruction`, and `commit_message` at the CLI — the agent and model come from `.forge/config.toml`.
 
 ### Instruction path resolution
 
@@ -73,10 +72,18 @@ Bare filenames work. `--instruction memory-phase-1-stable-ids-and-ingest.md` wil
 Typical invocation:
 
 ```
-forge run refactor-phase \
+forge run phase \
   --instruction memory-phase-1-stable-ids-and-ingest.md \
-  --var refactor_branch=memory/phase-1-stable-ids \
+  --var phase_branch=memory/refactor \
   --var commit_message="feat(memory): phase 1 — stable IDs and ingest"
+```
+
+Subsequent phases reuse the same `phase_branch`. After the final phase:
+
+```
+forge run finalize \
+  --var phase_branch=memory/refactor \
+  --var commit_message="refactor(memory): phased rewrite"
 ```
 
 That starts the run, drives the agent against the instruction file, runs the test gate, retries on failure, and archives the instruction file on success.
@@ -91,7 +98,7 @@ Every run writes to `<workspace>/.forge/runs/run-<unix_ts>/`. Contents:
 To tail live progress of the agentic implementation step on a running phase:
 
 ```
-tail -f .forge/runs/run-<ts>/step-2-implement-phase.log
+tail -f .forge/runs/<run-id>/step-2-implement-phase.log
 ```
 
 The step log streams in real time because forge dispatches agents via a raw PTY and a spawn_reader thread flushes chunks to the log as they arrive. You can watch the agent think as it happens.
@@ -140,7 +147,7 @@ There are two common shapes for phase instruction files:
 - **Prescriptive** — for small TDD phases with clear test cases. List the types, functions, tests, and file paths. The agent executes. Covered by the `phased-build-with-codex` Hermes skill.
 - **Problem-focused** — for architectural / foundational phases. Describe the problem, explain the larger context, state the load-bearing constraints, leave the HOW to the agent. Covered here and by the `designing-phase-instructions` Hermes skill.
 
-The rest of this document is about the problem-focused shape, because that is the one that tends to go wrong and is the one the refactor-phase blueprint is designed for.
+The rest of this document is about the problem-focused shape, because that is the one that tends to go wrong and is the one the `phase` blueprint is designed for.
 
 ### The principle
 

@@ -21,45 +21,19 @@ use forge::vars::{build_variable_scope, substitute_known_text, substitute_text};
 use tempfile::{TempDir, tempdir};
 
 #[test]
-fn parses_generated_refactor_blueprint() {
+fn parses_generated_build_blueprint() {
     let dir = init_generated_project();
-    let path = dir.path().join(".forge/blueprints/refactor.toml");
-    let blueprint = parse_blueprint_file(path).expect("lint blueprint should parse");
+    let path = dir.path().join(".forge/blueprints/build.toml");
+    let blueprint = parse_blueprint_file(path).expect("build blueprint should parse");
 
-    assert_eq!(blueprint.blueprint.name, "refactor");
+    assert_eq!(blueprint.blueprint.name, "build");
     assert_branching_step_sequence(
         &blueprint,
         &[
             "clean-tree",
             "verify-base",
             "create-branch",
-            "refactor",
-            "commit-backstop",
-            "verify",
-            "docs-check",
-            "docs-commit-backstop",
-            "archive-instruction",
-            "push-branch",
-            "write-pr",
-            "create-pr",
-            "checkout-main",
-        ],
-    );
-}
-
-#[test]
-fn parses_generated_new_feature_blueprint() {
-    let dir = init_generated_project();
-    let path = dir.path().join(".forge/blueprints/new-feature.toml");
-    let blueprint = parse_blueprint_file(path).expect("new-feature should parse");
-
-    assert_branching_step_sequence(
-        &blueprint,
-        &[
-            "clean-tree",
-            "verify-base",
-            "create-branch",
-            "implement",
+            "build",
             "commit-backstop",
             "verify",
             "docs-check",
@@ -92,13 +66,13 @@ fn parses_generated_new_feature_blueprint() {
             .iter()
             .any(|step| step.name == "docs-check" && step.allow_failure)
     );
-    let implement = blueprint
+    let build_step = blueprint
         .steps
         .iter()
-        .find(|step| step.name == "implement")
-        .expect("implement step");
+        .find(|step| step.name == "build")
+        .expect("build step");
     assert!(
-        !implement
+        !build_step
             .prompt
             .as_deref()
             .unwrap_or_default()
@@ -154,12 +128,12 @@ fn parses_generated_code_review_blueprint() {
 }
 
 #[test]
-fn parses_generated_refactor_phase_blueprint() {
+fn parses_generated_phase_blueprint() {
     let dir = init_generated_project();
-    let path = dir.path().join(".forge/blueprints/refactor-phase.toml");
-    let blueprint = parse_blueprint_file(path).expect("refactor-phase should parse");
+    let path = dir.path().join(".forge/blueprints/phase.toml");
+    let blueprint = parse_blueprint_file(path).expect("phase should parse");
 
-    assert_eq!(blueprint.blueprint.name, "refactor-phase");
+    assert_eq!(blueprint.blueprint.name, "phase");
     assert_branching_step_sequence(
         &blueprint,
         &[
@@ -176,12 +150,12 @@ fn parses_generated_refactor_phase_blueprint() {
 }
 
 #[test]
-fn parses_generated_refactor_finalize_blueprint() {
+fn parses_generated_finalize_blueprint() {
     let dir = init_generated_project();
-    let path = dir.path().join(".forge/blueprints/refactor-finalize.toml");
-    let blueprint = parse_blueprint_file(path).expect("refactor-finalize should parse");
+    let path = dir.path().join(".forge/blueprints/finalize.toml");
+    let blueprint = parse_blueprint_file(path).expect("finalize should parse");
 
-    assert_eq!(blueprint.blueprint.name, "refactor-finalize");
+    assert_eq!(blueprint.blueprint.name, "finalize");
     assert_branching_step_sequence(
         &blueprint,
         &[
@@ -872,8 +846,8 @@ fn aborts_after_exhausting_retries() {
 #[test]
 fn dry_run_generated_pipeline() {
     let dir = init_generated_project();
-    let path = dir.path().join(".forge/blueprints/new-feature.toml");
-    let blueprint = parse_blueprint_file(path).expect("new-feature should parse");
+    let path = dir.path().join(".forge/blueprints/build.toml");
+    let blueprint = parse_blueprint_file(path).expect("build should parse");
     let mut context = RunContext::new();
     context.dry_run = true;
     context.variables = BTreeMap::from([
@@ -892,7 +866,7 @@ fn dry_run_generated_pipeline() {
         ("target_agent".to_string(), "codex".to_string()),
         ("target_model".to_string(), "gpt-5.4".to_string()),
         ("default_branch".to_string(), "main".to_string()),
-        ("run_id".to_string(), "new-feature-a3f2".to_string()),
+        ("run_id".to_string(), "build-a3f2".to_string()),
         (
             "instruction_file".to_string(),
             "add-a-hello-subcommand.2026-03-31T1325.codex.md".to_string(),
@@ -1014,7 +988,7 @@ fn summary_format_failure() {
 
 #[test]
 fn cli_parses_notify_flag() {
-    let cli = Cli::try_parse_from(["forge", "run", "new-feature", "--notify", "openclaw,slack"])
+    let cli = Cli::try_parse_from(["forge", "run", "build", "--notify", "openclaw,slack"])
         .expect("cli should accept --notify");
 
     match cli.command {
@@ -1387,7 +1361,7 @@ fn cli_parses_repo_run_shape_and_vars() {
     let cli = Cli::try_parse_from([
         "forge",
         "run",
-        "new-feature",
+        "build",
         "--repo",
         "warrant-shell",
         "--task",
@@ -1426,7 +1400,7 @@ fn cli_parses_repo_run_shape_and_vars() {
             vars,
             ..
         } => {
-            assert_eq!(blueprint_name.as_deref(), Some("new-feature"));
+            assert_eq!(blueprint_name.as_deref(), Some("build"));
             assert_eq!(blueprint, None);
             assert_eq!(repo.as_deref(), Some("warrant-shell"));
             assert_eq!(task.as_deref(), Some("add verbose flag"));
@@ -1588,7 +1562,7 @@ fn auto_branch_name_matches_blueprint_conventions() {
     );
     assert_eq!(
         auto_branch_name(
-            "implement-feature",
+            "build",
             Some("Add verbose flag to the command line"),
             None,
             None,

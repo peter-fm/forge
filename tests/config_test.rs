@@ -77,7 +77,7 @@ fn build_run_variables_exposes_command_settings() {
     .expect("config should parse");
 
     let command = Commands::Run {
-        blueprint_name: Some("new-feature".to_string()),
+        blueprint_name: Some("build".to_string()),
         blueprint: None,
         repo: None,
         task: Some("Add status output".to_string()),

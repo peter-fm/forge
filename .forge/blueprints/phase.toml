@@ -1,0 +1,27 @@
+# forge-generated
+[blueprint]
+name = "phase"
+description = "Execute a single implementation phase of multi-phase work"
+
+[[step]]
+type = "deterministic"
+name = "checkout-or-create-branch"
+command = "git checkout {phase_branch} 2>/dev/null || git checkout -b {phase_branch}"
+
+[[step]]
+type = "agentic"
+name = "implement-phase"
+agent = "{target_agent}"
+model = "{target_model}"
+prompt = """Read your task instructions from {instruction_path}. Read ONLY your instruction file, not other agents' instructions. Implement this phase. Stay within the scope defined in the instruction file and do not change intended behavior outside that scope."""
+
+[[step]]
+type = "deterministic"
+name = "commit-backstop"
+command = "git add -A && git diff --cached --quiet || git commit -m \"{commit_message}\""
+
+[[step]]
+type = "blueprint"
+name = "verify"
+blueprint = "lint-and-test"
+

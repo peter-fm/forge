@@ -1,0 +1,10 @@
+# forge-generated
+[blueprint]
+name = "verify-base"
+description = "Assert local HEAD matches origin/{default_branch} before branching"
+
+[[step]]
+type = "deterministic"
+name = "verify"
+command = "git fetch origin {default_branch} --quiet && if [ \"$(git rev-parse HEAD)\" != \"$(git rev-parse origin/{default_branch})\" ]; then echo 'error: local HEAD differs from origin/{default_branch}. Push local commits or reset before branching — otherwise a squash-merge will absorb those commits and cause rebase conflicts on post-merge pull.' >&2; exit 1; fi"
+

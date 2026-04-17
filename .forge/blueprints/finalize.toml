@@ -1,17 +1,17 @@
 # forge-generated
 [blueprint]
-name = "refactor-finalize"
-description = "Finalize a multi-phase refactor and open the pull request"
+name = "finalize"
+description = "Finalize multi-phase work and open the pull request"
 
 [[step]]
 type = "deterministic"
 name = "checkout-branch"
-command = "git checkout {refactor_branch}"
+command = "git checkout {phase_branch}"
 
 [[step]]
-type = "deterministic"
-name = "final-test"
-command = "cargo test"
+type = "blueprint"
+name = "final-verify"
+blueprint = "lint-and-test"
 
 [[step]]
 type = "agentic"
@@ -44,7 +44,7 @@ command = "git add -A && git diff --cached --quiet || git commit -m \"docs: upda
 [[step]]
 type = "deterministic"
 name = "push-branch"
-command = "git push origin {refactor_branch}"
+command = "git push origin {phase_branch}"
 
 [[step]]
 type = "agentic"
@@ -67,7 +67,7 @@ Do not create the PR yourself. Only write the contents for `.forge/pr-body.md`."
 [[step]]
 type = "deterministic"
 name = "create-pr"
-command = "gh pr create --base {default_branch} --head {refactor_branch} --body-file .forge/pr-body.md --title \"{commit_message}\""
+command = "gh pr create --base {default_branch} --head {phase_branch} --body-file .forge/pr-body.md --title \"{commit_message}\" && rm -f .forge/pr-body.md"
 
 [[step]]
 type = "deterministic"

@@ -36,39 +36,43 @@ forge list
 ```
 
 Common blueprints:
-- `new-feature` — implement a feature with lint + test gates, then run a docs check before PR creation
-- `fix-bug` — fix a bug with regression test verification, then run a docs check before PR creation
-- `refactor` — refactor with lint + test gates, then run a docs check before PR creation
+- `build` — implement a task (feature or refactor) with lint + test gates, then a docs check before PR creation
+- `fix-bug` — fix a bug with regression test verification, then a docs check before PR creation
+- `phase` — execute one phase of multi-phase work on a shared branch (no PR yet)
+- `finalize` — run final gates and open the PR for multi-phase work
+- `pr-review` — senior-engineer review of an open PR
+- `code-review` — review a PR and post feedback via GitHub
 
 ### 4. Write task instructions
 
-Write a clear brief to `.forge/instructions/current.md`:
+Read `.forge/INSTRUCTION_GUIDE.md` before writing an instruction file — it defines the eight-section problem-focused shape forge agents expect. For small ad-hoc runs a short brief is fine, but for anything architectural follow the guide.
 
-```bash
-cat > .forge/instructions/current.md << 'EOF'
-## Task Title
-
-Clear description of what needs to be done.
-
-### Requirements
-- Specific requirement 1
-- Specific requirement 2
-
-### Acceptance Criteria
-- How to verify it works
-EOF
-```
+Instruction files live in `.forge/instructions/<slug>.md`. Forge hands the file directly to the implementing agent — there is no summariser in the middle, so the file has to stand alone.
 
 ### 5. Run the blueprint
 
 ```bash
-forge run new-feature
+forge run build --task "Add dark mode toggle to settings"
 ```
 
-Or with an inline task:
+Or with an instruction file you've authored:
 
 ```bash
-forge run fix-bug --task "Fix the null pointer in parse_config when input is empty"
+forge run build --instruction dark-mode.md --var commit_message="feat: dark mode"
+```
+
+For multi-phase work:
+
+```bash
+forge run phase \
+  --instruction phase-1-stable-ids.md \
+  --var phase_branch=refactor/memory-ids \
+  --var commit_message="feat(memory): phase 1 — stable IDs"
+
+# After the last phase:
+forge run finalize \
+  --var phase_branch=refactor/memory-ids \
+  --var commit_message="refactor: memory subsystem"
 ```
 
 ### 6. Check results

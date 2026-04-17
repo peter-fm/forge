@@ -18,7 +18,7 @@ cd my-project
 forge init          # auto-detects your stack, creates .forge/
 
 # Then, whenever an agent works on the project:
-forge run new-feature --task "Add WebSocket support"
+forge run build --task "Add WebSocket support"
 ```
 
 Forge interleaves **deterministic gates** (compile, lint, test) with **agentic steps** (Codex, Claude Code). The agent implements. The gates verify. If a gate fails, the agent retries. No slop gets through.
@@ -76,12 +76,15 @@ This creates:
 ```
 .forge/
 ├── config.toml              # project settings, detected commands
+├── INSTRUCTION_GUIDE.md     # how to write instruction files
 ├── blueprints/
-│   ├── new-feature.toml     # implement a feature with gates
+│   ├── build.toml           # implement a task (feature or refactor) with gates
 │   ├── fix-bug.toml         # fix a bug with test verification
-│   ├── refactor.toml        # refactor with lint + test + build gates
+│   ├── phase.toml           # one phase of multi-phase work on a shared branch
+│   ├── finalize.toml        # finalize multi-phase work and open the PR
 │   ├── test.toml            # run the detected test command directly
-│   └── pr-review.toml       # review, merge, and verify an open PR
+│   ├── pr-review.toml       # review, merge, and verify an open PR
+│   └── code-review.toml     # review a PR and post feedback via GitHub
 ├── instructions/            # task briefs go here (gitignored)
 │   └── .gitkeep
 ├── archive/                 # completed instructions (gitignored)
@@ -96,7 +99,7 @@ Always explicit — every run has a task:
 
 ```bash
 # Inline task (forge creates the instruction file automatically)
-forge run new-feature --task "Add dark mode support"
+forge run build --task "Add dark mode support"
 
 # Or write a detailed brief first, then point to it
 cat > .forge/instructions/dark-mode.md << 'EOF'
@@ -108,11 +111,13 @@ Add a dark mode toggle to the settings page.
 - Add tests for the toggle component
 EOF
 
-forge run new-feature --instruction dark-mode.md
+forge run build --instruction dark-mode.md
 
 # Or just run the generated test blueprint directly
 forge run test
 ```
+
+For guidance on writing a good instruction file, read `.forge/INSTRUCTION_GUIDE.md`.
 
 When you use `--task`, forge creates a uniquely named instruction file (e.g. `add-dark-mode.2026-03-31T1325.codex.md`) in `.forge/instructions/`, passes the path to the blueprint as `{instruction_path}`, runs the gates, and for branching blueprints runs a non-blocking `docs-check` step before PR creation. By default `forge run` also starts a local dashboard on port `8400` and increments to the next free port when needed; use `--no-dashboard` to disable it or `--port` to choose a starting port. If a gate fails, the agent retries.
 
@@ -120,7 +125,7 @@ On success, the instruction file is automatically moved to `.forge/archive/`. On
 
 Use `--task` or `--instruction`, not both.
 
-For architectural / foundational phases driven by the `refactor-phase` blueprint, see [docs/designing-phase-instructions.md](docs/designing-phase-instructions.md) for the recommended problem-focused brief shape.
+For multi-phase refactors driven by the `phase` + `finalize` blueprints, see [docs/designing-phase-instructions.md](docs/designing-phase-instructions.md) for the recommended problem-focused brief shape.
 
 ### 3. Check Status and Clean Up
 
@@ -152,7 +157,7 @@ Auto-detect project type and create `.forge/` with config and default blueprints
 
 ```
 Arguments:
-  [BLUEPRINT_NAME]      Blueprint name (new-feature, fix-bug, refactor, pr-review, etc.)
+  [BLUEPRINT_NAME]      Blueprint name (build, fix-bug, phase, finalize, pr-review, code-review, etc.)
 
 Options:
   --blueprint <path>      Run a blueprint from an explicit file path
@@ -193,11 +198,11 @@ If `--branch` is not provided, the engine generates one:
 
 | Blueprint | Branch Format |
 |-----------|---------------|
-| `implement-feature` | `feat/<task-slug>` |
-| `fix-bug` | `fix/<issue-id>` |
-| `code-review` | `refactor/code-review-<date>` |
-| `red-team` | `red-team/round-<N>` |
-| Other | `forge/<blueprint>-<date>` |
+| `build` | `feat/<task-slug>` |
+| `fix-bug` | `fix/<task-slug>` |
+| Other | `work/<task-slug>` |
+
+For `phase` and `finalize`, pass `--var phase_branch=<name>` so every phase shares the same branch.
 
 ## Blueprints
 
@@ -205,15 +210,15 @@ A blueprint is a TOML file defining a sequence of steps:
 
 ```toml
 [blueprint]
-name = "new-feature"
-description = "Implement a feature with lint and test gates"
+name = "build"
+description = "Implement a task with lint and test gates"
 
 [[step]]
 type = "agentic"
-name = "implement"
+name = "build"
 agent = "codex"
 model = "gpt-5.4"
-prompt = "Read your task instructions from {instruction_path}. Implement the feature. Add tests. Commit."
+prompt = "Read your task instructions from {instruction_path}. Implement the task. Add tests. Commit."
 max_retries = 2
 
 [[step]]
@@ -349,7 +354,7 @@ Repo paths are injected as variables: `core-lib` → `{core_lib_path}`. Sub-blue
 
 ```bash
 # Use Claude Code as the implementing agent
-forge run new-feature \
+forge run build \
   --task "Add rate limiting to the API" \
   --agent claude-code \
   --model claude-sonnet-4-20250514
@@ -371,8 +376,8 @@ forge run fix-bug \
   --agent codex \
   --model gpt-5.4
 
-# Refactor with Codex
-forge run refactor --task "Extract the auth middleware into its own module"
+# Refactor with Codex (build accepts feature or refactor work — scope comes from the instruction file)
+forge run build --task "Extract the auth middleware into its own module"
 ```
 
 ### Adding Forge to Your Repo
@@ -406,8 +411,8 @@ Forge ships with a skill definition (`skills/forge.md`) compatible with agent fr
 
 `--notify openclaw` sends a system event when the run completes:
 
-- **Success:** `✅ new-feature completed: 3/3 steps passed`
-- **Failure:** `❌ new-feature failed at step 'test': 2/3 steps completed`
+- **Success:** `✅ build completed: 3/3 steps passed`
+- **Failure:** `❌ build failed at step 'test': 2/3 steps completed`
 
 ## Regenerating Blueprints
 

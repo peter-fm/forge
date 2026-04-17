@@ -67,8 +67,8 @@ event: run_complete  data: { "status": "success" }
 **Planning is on by default.** Forge automatically injects a plan step before the first agentic step in any blueprint. The user opts out with `--skip-plan`, not in.
 
 ```bash
-forge run new-feature --task "Add WebSocket support"            # default: plan → approve → build
-forge run new-feature --task "Add WebSocket support" --skip-plan  # skip straight to building
+forge run build --task "Add WebSocket support"            # default: plan → approve → build
+forge run build --task "Add WebSocket support" --skip-plan  # skip straight to building
 ```
 
 This is a runtime injection — forge inserts the plan step automatically. Blueprints stay clean and don't need a `type = "plan"` entry. The injected plan step uses the same agent and model as the first agentic step in the blueprint.
@@ -148,7 +148,7 @@ Estimated: ~400 lines new code
 
 ### Phase 3 — Plan step + approval flow
 **Scope:** Runtime plan injection, dashboard approval UI, `oneshot` channel blocking, amendment text injection, `--skip-plan` flag, terminal fallback (stdin y/n/amend)
-**Test:** Run `forge run new-feature --task "..."`, verify plan appears in dashboard, approve it, verify agent receives plan context in the implement step. Also test `--skip-plan` skips the plan step entirely.
+**Test:** Run `forge run build --task "..."`, verify plan appears in dashboard, approve it, verify agent receives plan context in the implement step. Also test `--skip-plan` skips the plan step entirely.
 
 Files to create/modify:
 - `src/runner.rs` — plan step injection (before first agentic step), read-only agent execution, capture output, block for approval via oneshot channel
@@ -166,7 +166,7 @@ Estimated: ~500 lines new code
 
 ## Dogfooding Strategy
 
-**Phase 1:** Use `forge run new-feature --task "..."` with current blueprints (no dashboard yet — terminal only)
+**Phase 1:** Use `forge run build --task "..."` with current blueprints (no dashboard yet — terminal only)
 **Phase 2:** Use Phase 1's dashboard to watch Phase 2 being built (progress tracking works, no diffs yet)
 **Phase 3:** Use Phase 2's dashboard (with diffs!) to watch Phase 3 being built
 **Phase 4:** Use Phase 3's dashboard (with plan approval!) to approve Phase 4's plan before coding
