@@ -130,6 +130,22 @@ forge run open-pr \
   --var commit_message="<PR title>"
 ```
 
+### Running from a deskjob agent (non-interactive)
+
+If you are orchestrating forge from inside a deskjob agent (e.g. a Telegram-driven session) rather than an interactive CLI session, replace `forge run ...` with `forge-notify ...`:
+
+```bash
+forge-notify build --instruction <slug>.md --var commit_message="<message>"
+forge-notify phase --instruction <phase-slug>.md --var phase_branch=<branch> --var commit_message="<msg>"
+forge-notify open-pr --var phase_branch=<branch> --var commit_message="<PR title>"
+```
+
+`forge-notify` takes the same arguments as `forge run`, launches the run in a detached tmux session, and sends a deskjob notification to the project's channel when the run finishes (success or failure). Use it whenever the caller cannot block on a long-running forge invocation.
+
+Do NOT use `forge-notify` for interactive CLI runs — you want the live output and direct exit status in that context. `forge-notify` is specifically for agent contexts where the session would otherwise have no signal that the run completed.
+
+After kicking off a `forge-notify` run, the orchestration loop pauses until the deskjob notification arrives; resume at Step 5 (or the next phase) once it does.
+
 ## Step 5 — Review the PR and merge to main
 
 Once a PR is open (from `build`, `fix-bug`, or `open-pr`), don't stop. Run forge's PR review, which also merges on success:
