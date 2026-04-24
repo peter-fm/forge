@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Derive notify target from [project] name in deskjob.toml, fall back to general
+NOTIFY_PROJECT=$(awk '/^\[project\]/{found=1} found && /^name\s*=/{match($0,/"([^"]+)"/,a); print a[1]; exit}' deskjob.toml 2>/dev/null || true)
+NOTIFY_PROJECT="${NOTIFY_PROJECT:-general}"
+
+if [[ $# -eq 0 ]]; then
+  echo "Usage: forge-notify <forge-run-args...>" >&2
+  echo "Example: forge-notify phase --instruction foo.md --var phase_branch=feature/x --var commit_message='msg'" >&2
+  exit 1
+fi
+
+WORKDIR="$(pwd)"
+SESSION="forge-$(date +%H%M%S)"
+TMPSCRIPT=$(mktemp /tmp/forge-notify-XXXXXX.sh)
+
+# Capture args before they escape into the subshell
+FORGE_ARGS=$(printf '%q ' "$@")
+
+cat > "$TMPSCRIPT" << EOF
+#!/usr/bin/env bash
+set -euo pipefail
+cd $(printf '%q' "$WORKDIR")
+if forge run $FORGE_ARGS; then
+  deskjob send $NOTIFY_PROJECT -s "Forge done" "Session '$SESSION' succeeded."
+else
+  deskjob send $NOTIFY_PROJECT -s "Forge failed" "Session '$SESSION' failed — check .forge/runs/ for details."
+fi
+rm -f "$TMPSCRIPT"
+EOF
+
+chmod +x "$TMPSCRIPT"
+tmux new-session -d -s "$SESSION" "$TMPSCRIPT"
+
+echo "forge-notify: started tmux session '$SESSION'"
+echo "  attach:  tmux attach -t $SESSION"
+echo "  status:  forge status"
