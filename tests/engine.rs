@@ -150,12 +150,12 @@ fn parses_generated_phase_blueprint() {
 }
 
 #[test]
-fn parses_generated_finalize_blueprint() {
+fn parses_generated_open_pr_blueprint() {
     let dir = init_generated_project();
-    let path = dir.path().join(".forge/blueprints/finalize.toml");
-    let blueprint = parse_blueprint_file(path).expect("finalize should parse");
+    let path = dir.path().join(".forge/blueprints/open-pr.toml");
+    let blueprint = parse_blueprint_file(path).expect("open-pr should parse");
 
-    assert_eq!(blueprint.blueprint.name, "finalize");
+    assert_eq!(blueprint.blueprint.name, "open-pr");
     assert_branching_step_sequence(
         &blueprint,
         &[

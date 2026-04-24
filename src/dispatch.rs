@@ -95,8 +95,14 @@ fn run_shell(
             Ok(())
         });
     }
+    // `-c`, not `-lc`: a login shell sources ~/.profile / ~/.bash_profile,
+    // which typically *prepend* system/user bin dirs (mise, bun, cargo) to PATH.
+    // That silently reorders any PATH the caller set — breaking tests that
+    // stage a mock `claude`/`codex` in a tempdir bin/ and prepend it. The
+    // inherited PATH already has the user's shell setup when forge is run
+    // from a terminal, so `-l` bought us nothing here.
     let mut child = child
-        .arg("-lc")
+        .arg("-c")
         .arg(command)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -214,6 +220,18 @@ fn build_codex_command(
         .get("FORGE_CODEX_FLAGS")
         .cloned()
         .unwrap_or_else(|| "--yolo".to_string());
+    // Effort is agent-neutral and set via `[agent].effort` in forge config
+    // (surfaced as FORGE_AGENT_EFFORT). For codex it maps to
+    // `-c model_reasoning_effort=...`. Defaults to medium; empty disables the flag.
+    let effort = env
+        .get("FORGE_AGENT_EFFORT")
+        .map(String::as_str)
+        .unwrap_or("medium");
+    let reasoning_flag = if effort.is_empty() {
+        String::new()
+    } else {
+        format!(" -c model_reasoning_effort={}", shell_quote(effort))
+    };
     // Exec-level flags go AFTER `exec`. `--json` MUST live here — codex rejects
     // `--json` at the top level. Streaming JSONL events is why we're here:
     // spawn_reader flushes chunks to the step log as they arrive, making
@@ -226,9 +244,10 @@ fn build_codex_command(
 
     if let Some(session_id) = resume {
         Ok(format!(
-            "cd {} && codex {} --model {} exec resume {} {} {}",
+            "cd {} && codex {}{} --model {} exec resume {} {} {}",
             shell_quote(&repo_path),
             top_flags,
+            reasoning_flag,
             shell_quote(model),
             exec_flags,
             shell_quote(session_id),
@@ -236,9 +255,10 @@ fn build_codex_command(
         ))
     } else {
         Ok(format!(
-            "cd {} && codex {} --model {} exec {} {}",
+            "cd {} && codex {}{} --model {} exec {} {}",
             shell_quote(&repo_path),
             top_flags,
+            reasoning_flag,
             shell_quote(model),
             exec_flags,
             shell_quote(prompt)
@@ -480,10 +500,12 @@ mod tests {
         let env = BTreeMap::from([("PWD".to_string(), "/repo".to_string())]);
 
         let command =
-            build_codex_command("implement", "gpt-5.4", "fix it", &env).expect("codex command");
+            build_codex_command("implement", "gpt-5.5", "fix it", &env).expect("codex command");
 
         assert!(
-            command.contains("codex --yolo --model 'gpt-5.4' exec --json 'fix it'"),
+            command.contains(
+                "codex --yolo -c model_reasoning_effort='medium' --model 'gpt-5.5' exec --json 'fix it'"
+            ),
             "unexpected command: {command}"
         );
     }
@@ -501,11 +523,12 @@ mod tests {
         ]);
 
         let command =
-            build_codex_command("implement", "gpt-5.4", "fix it", &env).expect("codex command");
+            build_codex_command("implement", "gpt-5.5", "fix it", &env).expect("codex command");
 
         assert!(
-            command
-                .contains("codex --ask-for-approval=never --model 'gpt-5.4' exec --json 'fix it'"),
+            command.contains(
+                "codex --ask-for-approval=never -c model_reasoning_effort='medium' --model 'gpt-5.5' exec --json 'fix it'"
+            ),
             "unexpected command: {command}"
         );
     }
@@ -520,11 +543,49 @@ mod tests {
         ]);
 
         let command =
-            build_codex_command("implement", "gpt-5.4", "fix it", &env).expect("codex command");
+            build_codex_command("implement", "gpt-5.5", "fix it", &env).expect("codex command");
 
         assert!(!command.contains("--json"), "unexpected command: {command}");
         assert!(
-            command.contains("codex --yolo --model 'gpt-5.4' exec  'fix it'"),
+            command.contains(
+                "codex --yolo -c model_reasoning_effort='medium' --model 'gpt-5.5' exec  'fix it'"
+            ),
+            "unexpected command: {command}"
+        );
+    }
+
+    #[test]
+    fn codex_command_honors_effort_override() {
+        let env = BTreeMap::from([
+            ("FORGE_AGENT_EFFORT".to_string(), "xhigh".to_string()),
+            ("PWD".to_string(), "/repo".to_string()),
+        ]);
+
+        let command =
+            build_codex_command("implement", "gpt-5.5", "fix it", &env).expect("codex command");
+
+        assert!(
+            command.contains("-c model_reasoning_effort='xhigh'"),
+            "unexpected command: {command}"
+        );
+        assert!(
+            !command.contains("model_reasoning_effort='medium'"),
+            "unexpected command: {command}"
+        );
+    }
+
+    #[test]
+    fn codex_command_drops_reasoning_flag_when_effort_is_empty() {
+        let env = BTreeMap::from([
+            ("FORGE_AGENT_EFFORT".to_string(), String::new()),
+            ("PWD".to_string(), "/repo".to_string()),
+        ]);
+
+        let command =
+            build_codex_command("implement", "gpt-5.5", "fix it", &env).expect("codex command");
+
+        assert!(
+            !command.contains("model_reasoning_effort"),
             "unexpected command: {command}"
         );
     }
@@ -540,11 +601,11 @@ mod tests {
         ]);
 
         let command =
-            build_codex_command("implement", "gpt-5.4", "fix it", &env).expect("codex command");
+            build_codex_command("implement", "gpt-5.5", "fix it", &env).expect("codex command");
 
         assert!(
             command.contains(
-                "codex --yolo --model 'gpt-5.4' exec resume --json '019d7824-b932-77d1-bc55-59db268b05b0' 'fix it'"
+                "codex --yolo -c model_reasoning_effort='medium' --model 'gpt-5.5' exec resume --json '019d7824-b932-77d1-bc55-59db268b05b0' 'fix it'"
             ),
             "unexpected command: {command}"
         );

@@ -67,7 +67,7 @@ command = "git add -A && git diff --cached --quiet || git commit -m \"docs: upda
 [[step]]
 type = "deterministic"
 name = "archive-instruction"
-command = "if [ -f .forge/instructions/{instruction_file} ]; then mkdir -p .forge/archive && git mv .forge/instructions/{instruction_file} .forge/archive/{instruction_file} && git commit -m 'chore: archive {instruction_file}'; fi"
+command = "if [ -f .forge/instructions/{instruction_file} ]; then mkdir -p .forge/archive && mv .forge/instructions/{instruction_file} .forge/archive/{instruction_file} && git rm -f --ignore-unmatch --quiet .forge/instructions/{instruction_file} && git add .forge/archive/{instruction_file} && git commit -m 'chore: archive {instruction_file}'; fi"
 
 [[step]]
 type = "deterministic"

@@ -81,7 +81,7 @@ This creates:
 │   ├── build.toml           # implement a task (feature or refactor) with gates
 │   ├── fix-bug.toml         # fix a bug with test verification
 │   ├── phase.toml           # one phase of multi-phase work on a shared branch
-│   ├── finalize.toml        # finalize multi-phase work and open the PR
+│   ├── open-pr.toml         # verify, push, and open a PR for multi-phase work
 │   ├── test.toml            # run the detected test command directly
 │   ├── pr-review.toml       # review, merge, and verify an open PR
 │   └── review-codebase.toml # sweep the codebase for dead code, TODOs, and placeholder stubs
@@ -125,7 +125,7 @@ On success, the instruction file is automatically moved to `.forge/archive/`. On
 
 Use `--task` or `--instruction`, not both.
 
-For multi-phase refactors driven by the `phase` + `finalize` blueprints, see [docs/designing-phase-instructions.md](docs/designing-phase-instructions.md) for the recommended problem-focused brief shape.
+For multi-phase refactors driven by the `phase` + `open-pr` blueprints, see [docs/designing-phase-instructions.md](docs/designing-phase-instructions.md) for the recommended problem-focused brief shape.
 
 ### 3. Check Status and Clean Up
 
@@ -157,7 +157,7 @@ Auto-detect project type and create `.forge/` with config and default blueprints
 
 ```
 Arguments:
-  [BLUEPRINT_NAME]      Blueprint name (build, fix-bug, phase, finalize, pr-review, review-codebase, etc.)
+  [BLUEPRINT_NAME]      Blueprint name (build, fix-bug, phase, open-pr, pr-review, review-codebase, etc.)
 
 Options:
   --blueprint <path>      Run a blueprint from an explicit file path
@@ -202,7 +202,7 @@ If `--branch` is not provided, the engine generates one:
 | `fix-bug` | `fix/<task-slug>` |
 | Other | `work/<task-slug>` |
 
-For `phase` and `finalize`, pass `--var phase_branch=<name>` so every phase shares the same branch.
+For `phase` and `open-pr`, pass `--var phase_branch=<name>` so every phase shares the same branch.
 
 ## Blueprints
 
@@ -217,7 +217,7 @@ description = "Implement a task with lint and test gates"
 type = "agentic"
 name = "build"
 agent = "codex"
-model = "gpt-5.4"
+model = "gpt-5.5"
 prompt = "Read your task instructions from {instruction_path}. Implement the task. Add tests. Commit."
 max_retries = 2
 
@@ -235,7 +235,7 @@ command = "cargo test"
 type = "agentic"
 name = "docs-check"
 agent = "codex"
-model = "gpt-5.4"
+model = "gpt-5.5"
 prompt = "Review the recent code changes and update affected docs if needed."
 allow_failure = true
 ```
@@ -302,7 +302,8 @@ build = "cargo build"
 
 [agent]
 default = "codex"               # default agent for agentic steps
-model = "gpt-5.4"               # default model
+model = "gpt-5.5"               # default model
+effort = "medium"               # reasoning effort (codex: maps to `-c model_reasoning_effort=<value>`; set "" to omit)
 
 [instructions]
 directory = "instructions"       # relative to .forge/

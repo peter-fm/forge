@@ -43,7 +43,7 @@ fn init_creates_forge_layout_and_gitignore_entries() {
             .exists()
     );
     assert!(dir.path().join(".forge/blueprints/phase.toml").exists());
-    assert!(dir.path().join(".forge/blueprints/finalize.toml").exists());
+    assert!(dir.path().join(".forge/blueprints/open-pr.toml").exists());
     assert!(dir.path().join(".forge/blueprints/test.toml").exists());
     assert!(dir.path().join(".forge/instructions/.gitkeep").exists());
     assert!(dir.path().join(".forge/archive").exists());
@@ -82,8 +82,22 @@ fn init_creates_forge_layout_and_gitignore_entries() {
         .expect("read pr-review blueprint");
     assert!(pr_review.contains("name = \"pr-review\""));
     assert!(pr_review.contains("gh pr checkout {pr}"));
+    assert!(pr_review.contains("name = \"address-blocking\""));
+    assert!(pr_review.contains("CHANGES_REQUESTED"));
+    assert!(pr_review.contains("allow_failure = true"));
     assert!(pr_review.contains("name = \"post-merge-verify\""));
     assert!(pr_review.contains("blueprint = \"lint-and-test\""));
+
+    let address_idx = pr_review
+        .find("name = \"address-blocking\"")
+        .expect("address-blocking step present");
+    let merge_idx = pr_review
+        .find("name = \"merge\"")
+        .expect("merge step present");
+    assert!(
+        address_idx < merge_idx,
+        "address-blocking must run before merge"
+    );
 
     let review_codebase =
         fs::read_to_string(dir.path().join(".forge/blueprints/review-codebase.toml"))
@@ -105,11 +119,12 @@ fn init_creates_forge_layout_and_gitignore_entries() {
     assert!(phase.contains("blueprint = \"lint-and-test\""));
     assert!(phase.contains("{phase_branch}"));
 
-    let finalize = fs::read_to_string(dir.path().join(".forge/blueprints/finalize.toml"))
-        .expect("read finalize blueprint");
-    assert!(finalize.contains("name = \"final-verify\""));
-    assert!(finalize.contains("blueprint = \"lint-and-test\""));
-    assert!(finalize.contains("{phase_branch}"));
+    let open_pr = fs::read_to_string(dir.path().join(".forge/blueprints/open-pr.toml"))
+        .expect("read open-pr blueprint");
+    assert!(open_pr.contains("name = \"open-pr\""));
+    assert!(open_pr.contains("name = \"final-verify\""));
+    assert!(open_pr.contains("blueprint = \"lint-and-test\""));
+    assert!(open_pr.contains("{phase_branch}"));
 
     let lint_and_test =
         fs::read_to_string(dir.path().join(".forge/blueprints/lint-and-test.toml"))
@@ -136,7 +151,9 @@ fn init_creates_forge_layout_and_gitignore_entries() {
         assert!(blueprint.contains("name = \"verify-base\""));
         assert!(blueprint.contains("blueprint = \"verify-base\""));
         assert!(blueprint.contains("name = \"archive-instruction\""));
-        assert!(blueprint.contains("git mv .forge/instructions/{instruction_file}"));
+        assert!(blueprint.contains("mv .forge/instructions/{instruction_file} .forge/archive/{instruction_file}"));
+        assert!(blueprint.contains("git add .forge/archive/{instruction_file}"));
+        assert!(!blueprint.contains("git mv .forge/instructions/{instruction_file}"));
     }
 
     let verify_base = fs::read_to_string(dir.path().join(".forge/blueprints/verify-base.toml"))

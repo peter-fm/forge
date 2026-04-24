@@ -1,7 +1,7 @@
 # forge-generated
 [blueprint]
-name = "finalize"
-description = "Finalize multi-phase work and open the pull request"
+name = "open-pr"
+description = "Verify, push, and open a pull request for multi-phase work"
 
 [[step]]
 type = "deterministic"

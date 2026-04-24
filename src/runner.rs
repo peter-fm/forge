@@ -907,6 +907,12 @@ fn configure_agent_env(
     agent: &str,
     context: &RunContext,
 ) {
+    if !env.contains_key("FORGE_AGENT_EFFORT")
+        && let Some(effort) = context.variables.get("target_effort")
+    {
+        env.insert("FORGE_AGENT_EFFORT".to_string(), effort.clone());
+    }
+
     if let Some(existing) = context
         .step_results
         .get(step_id)

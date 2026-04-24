@@ -1,6 +1,11 @@
 ---
-command: forge
-description: Use forge development guardrails when working on a project. Check for .forge/ directory, write task instructions, run blueprints with lint and test gates.
+name: forge
+description: >
+  Use forge development guardrails when working on a project. Check for a
+  .forge/ directory, read its config, pick a blueprint, write an instruction
+  file, then run the blueprint so lint and test gates apply. Triggers: "forge",
+  "forge run", "forge init", ".forge/", "blueprint", "build blueprint",
+  "fix-bug blueprint", "pr-review", "review-codebase".
 ---
 
 # Forge — Development Guardrails
@@ -39,43 +44,75 @@ Common blueprints:
 - `build` — implement a task (feature or refactor) with lint + test gates, then a docs check before PR creation
 - `fix-bug` — fix a bug with regression test verification, then a docs check before PR creation
 - `phase` — execute one phase of multi-phase work on a shared branch (no PR yet)
-- `finalize` — run final gates and open the PR for multi-phase work
+- `open-pr` — run final gates and open the PR for multi-phase work
 - `pr-review` — senior-engineer review of an open PR, then merge and run post-merge lint/test
 - `review-codebase` — sweep the codebase for dead code, unused exports, stray TODOs, placeholder stubs, and inconsistent patterns; writes findings to `.forge/instructions/review-codebase-<date>.md` for later triage (does not modify code)
 
-### 4. Write task instructions
+### 4. Pick a blueprint by the shape of the deliverable
 
-Read `.forge/INSTRUCTION_GUIDE.md` before writing an instruction file — it defines the eight-section problem-focused shape forge agents expect. For small ad-hoc runs a short brief is fine, but for anything architectural follow the guide.
+Choose based on what should land, not the kind of work:
+
+- **One commit, one PR → `build`.** Features, bug fixes, and refactors that fit in a single reviewable PR.
+- **Multiple commits across multiple sessions, one PR at the end → `phase` per session, then `open-pr` once.** Use this when the work is too large to land in one reviewable PR but you still want a single PR for the reviewer. Each `phase` run commits to a shared branch without opening a PR; `open-pr` runs the final gates and opens the PR.
+- **Bug with a regression test → `fix-bug`.** Like `build` but prompts for the regression test first.
+- **Reviewing an existing PR → `pr-review`.** Not for writing new code.
+- **Sweeping for hygiene issues → `review-codebase`.** Produces an instruction file of findings; does not modify code.
+
+If you have an explicit multi-phase plan, do NOT default to `build` — it will open a PR after phase 1. Use `phase` + `open-pr`.
+
+### 5. Write task instructions
+
+Read `.forge/INSTRUCTION_GUIDE.md` before writing an instruction file — it defines the eight-section problem-focused shape forge agents expect. Required reading for anything spanning more than a single file or commit; a short brief is only fine for truly trivial ad-hoc runs.
 
 Instruction files live in `.forge/instructions/<slug>.md`. Forge hands the file directly to the implementing agent — there is no summariser in the middle, so the file has to stand alone.
 
-### 5. Run the blueprint
+### 6. Run the blueprint
 
-```bash
-forge run build --task "Add dark mode toggle to settings"
-```
-
-Or with an instruction file you've authored:
+**Single PR (most work):**
 
 ```bash
 forge run build --instruction dark-mode.md --var commit_message="feat: dark mode"
 ```
 
-For multi-phase work:
+Or for a quick ad-hoc run without an instruction file:
 
 ```bash
+forge run build --task "Add dark mode toggle to settings"
+```
+
+**Bug fix with regression test:**
+
+```bash
+forge run fix-bug --instruction missing-null-check.md --var commit_message="fix: null check on user.email"
+```
+
+**Multi-phase refactor (shared branch, one PR at the end):**
+
+```bash
+# One run per phase — same phase_branch across all of them:
 forge run phase \
   --instruction phase-1-stable-ids.md \
   --var phase_branch=refactor/memory-ids \
   --var commit_message="feat(memory): phase 1 — stable IDs"
 
-# After the last phase:
-forge run finalize \
+forge run phase \
+  --instruction phase-2-storage.md \
+  --var phase_branch=refactor/memory-ids \
+  --var commit_message="feat(memory): phase 2 — storage layer"
+
+# After the final phase, open the PR:
+forge run open-pr \
   --var phase_branch=refactor/memory-ids \
   --var commit_message="refactor: memory subsystem"
 ```
 
-### 6. Check results
+**Review an open PR:**
+
+```bash
+forge run pr-review --pr 123
+```
+
+### 7. Check results
 
 ```bash
 forge status

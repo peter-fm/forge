@@ -2,7 +2,7 @@
 
 Guide for writing `.forge/instructions/<slug>.md` files — the briefs forge hands to implementing agents.
 
-First read `.forge/blueprints/*` and decide which blueprint fits the coding session. Most branching work is `build` (single branch, single PR). Multi-phase work is `phase` + `finalize` (shared branch across runs, one PR at the end).
+First read `.forge/blueprints/*` and decide which blueprint fits the coding session. Most branching work is `build` (single branch, single PR). Multi-phase work is `phase` + `open-pr` (shared branch across runs, one PR at the end).
 
 ## The principle
 
@@ -51,7 +51,7 @@ forge run build \
   --var commit_message="<commit message>"
 ```
 
-Multi-phase work (shared branch across runs, finalized into one PR):
+Multi-phase work (shared branch across runs, one PR opened at the end):
 
 ```bash
 forge run phase \
@@ -60,7 +60,7 @@ forge run phase \
   --var commit_message="<phase commit message>"
 
 # After the last phase:
-forge run finalize \
+forge run open-pr \
   --var phase_branch=<branch-name> \
   --var commit_message="<PR title>"
 ```

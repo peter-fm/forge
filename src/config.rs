@@ -56,6 +56,7 @@ pub struct DashboardConfig {
 pub struct Defaults {
     pub agent: Option<String>,
     pub model: Option<String>,
+    pub effort: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -65,6 +66,7 @@ pub struct RepoConfig {
     pub test_blueprint: Option<String>,
     pub agent: Option<String>,
     pub model: Option<String>,
+    pub effort: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -100,6 +102,7 @@ struct RawForgeConfig {
 struct AgentConfig {
     default: Option<String>,
     model: Option<String>,
+    effort: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,6 +113,7 @@ struct RawRepoConfig {
     test_blueprint: Option<String>,
     agent: Option<String>,
     model: Option<String>,
+    effort: Option<String>,
 }
 
 pub fn load_forge_config(path: impl AsRef<Path>) -> Result<ForgeConfig, ForgeError> {
@@ -131,6 +135,7 @@ pub fn load_forge_config_str(input: &str) -> Result<ForgeConfig, ForgeError> {
                     test_blueprint: repo.test_blueprint,
                     agent: repo.agent,
                     model: repo.model,
+                    effort: repo.effort,
                 },
             ))
         })
@@ -145,6 +150,7 @@ pub fn load_forge_config_str(input: &str) -> Result<ForgeConfig, ForgeError> {
         defaults: Defaults {
             agent: raw.agent.default.or(raw.defaults.agent),
             model: raw.agent.model.or(raw.defaults.model),
+            effort: raw.agent.effort.or(raw.defaults.effort),
         },
         repos,
         routing: raw.routing,
@@ -220,6 +226,11 @@ fn build_run_variables_with_summarizer(
             insert_if_some(&mut values, "target_model", config.defaults.model.clone());
             insert_if_some(
                 &mut values,
+                "target_effort",
+                config.defaults.effort.clone(),
+            );
+            insert_if_some(
+                &mut values,
                 "project_type",
                 config.project.project_type.clone(),
             );
@@ -246,6 +257,11 @@ fn build_run_variables_with_summarizer(
                 );
                 insert_if_some(&mut values, "target_agent", repo_config.agent.clone());
                 insert_if_some(&mut values, "target_model", repo_config.model.clone());
+                insert_if_some(
+                    &mut values,
+                    "target_effort",
+                    repo_config.effort.clone(),
+                );
             }
 
             values.insert("date".to_string(), date.to_string());

@@ -13,7 +13,7 @@ command = "git diff --quiet && git diff --cached --quiet"
 type = "agentic"
 name = "review"
 agent = "codex"
-model = "gpt-5.4"
+model = "gpt-5.5"
 prompt = """You are a senior engineer reviewing PR #{pr}.
 
 1. Read the PR description:
@@ -41,9 +41,37 @@ max_retries = 1
 
 [[step]]
 type = "agentic"
+name = "address-blocking"
+agent = "codex"
+model = "gpt-5.5"
+prompt = """Check whether the prior review step left any blocking comments on PR #{pr}, and if so, fix them. ONE pass only — do not iterate.
+
+1. Fetch the latest review state:
+   gh pr view {pr} --json reviews,comments,reviewDecision
+
+2. Identify blocking items. A comment counts as blocking ONLY if:
+   - The review state is CHANGES_REQUESTED, OR
+   - The review/comment body explicitly uses the word \"blocking\" (or \"must fix\" / \"required\")
+   Subjective suggestions (\"consider\", \"nit\", \"could\", \"might want to\") are NOT blocking — ignore them.
+
+3. If there are no blocking items, do nothing and exit. This step is a no-op in that case.
+
+4. If there are blocking items:
+   - Make sure you are on the PR branch: gh pr checkout {pr}
+   - Make the minimal changes needed to address each blocking item
+   - Commit with a clear message referencing what was addressed
+   - Push to the PR branch: git push
+   - Reply on the PR summarising what you fixed: gh pr comment {pr} --body \"...\"
+
+5. Do NOT re-trigger another review cycle. Do NOT address non-blocking suggestions. Cap: one fix pass."""
+max_retries = 1
+allow_failure = true
+
+[[step]]
+type = "agentic"
 name = "merge"
 agent = "codex"
-model = "gpt-5.4"
+model = "gpt-5.5"
 prompt = """Merge PR #{pr} to the default branch.
 
 1. First, try a clean merge:

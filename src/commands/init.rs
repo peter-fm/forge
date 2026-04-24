@@ -62,7 +62,7 @@ fn render_default_blueprints(detected: &DetectedProject) -> Vec<(&'static str, S
             render_review_codebase_blueprint(detected),
         ),
         ("phase.toml", render_phase_blueprint(detected)),
-        ("finalize.toml", render_finalize_blueprint(detected)),
+        ("open-pr.toml", render_open_pr_blueprint(detected)),
     ];
     if detected.commands.test.is_some() {
         blueprints.push(("test.toml", render_test_blueprint(detected)));
@@ -87,7 +87,8 @@ pub fn render_config(detected: &DetectedProject) -> String {
     }
     output.push_str("\n[agent]\n");
     output.push_str("default = \"codex\"\n");
-    output.push_str("model = \"gpt-5.4\"\n\n");
+    output.push_str("model = \"gpt-5.5\"\n");
+    output.push_str("effort = \"medium\"\n\n");
     output.push_str("[instructions]\n");
     output.push_str("directory = \"instructions\"\n");
     output.push_str("gitignore = true\n");
@@ -205,7 +206,7 @@ fn render_branching_blueprint(
     append_command_step(
         &mut output,
         "archive-instruction",
-        "if [ -f .forge/instructions/{instruction_file} ]; then mkdir -p .forge/archive && git mv .forge/instructions/{instruction_file} .forge/archive/{instruction_file} && git commit -m 'chore: archive {instruction_file}'; fi",
+        "if [ -f .forge/instructions/{instruction_file} ]; then mkdir -p .forge/archive && mv .forge/instructions/{instruction_file} .forge/archive/{instruction_file} && git rm -f --ignore-unmatch --quiet .forge/instructions/{instruction_file} && git add .forge/archive/{instruction_file} && git commit -m 'chore: archive {instruction_file}'; fi",
         false,
     );
     append_command_step(
@@ -262,14 +263,22 @@ pub fn render_pr_review_blueprint(_detected: &DetectedProject) -> String {
     output.push_str("type = \"agentic\"\n");
     output.push_str("name = \"review\"\n");
     output.push_str("agent = \"codex\"\n");
-    output.push_str("model = \"gpt-5.4\"\n");
+    output.push_str("model = \"gpt-5.5\"\n");
     output.push_str(&format!("prompt = \"\"\"You are a senior engineer reviewing PR #{{pr}}.\n\n1. Read the PR description:\n   gh pr view {{pr}} --json title,body,additions,deletions,changedFiles\n\n2. Check out the branch and read the full diff:\n   gh pr checkout {{pr}}\n   git diff {DEFAULT_BRANCH_VAR}...HEAD\n\n3. Review the implementation from the standpoint of the system as a whole:\n   - Does the design make sense in the context of the broader codebase?\n   - Are there architectural concerns, coupling issues, or missed edge cases?\n   - Is the code consistent with existing patterns and conventions?\n   - Are tests adequate — do they cover the new behaviour and edge cases?\n   - Is there anything the implementing agent missed or got wrong?\n\n4. If you find issues:\n   - Leave review comments via gh pr review {{pr}} --comment --body \\\"...\\\"\n   - Be specific: reference files, lines, and explain why it matters\n   - Distinguish blocking issues from suggestions\n\n5. If the code is good (or after addressing issues):\n   - Approve: gh pr review {{pr}} --approve --body \\\"LGTM — <brief summary>\\\"\"\"\"\n"));
     output.push_str("max_retries = 1\n\n");
     output.push_str("[[step]]\n");
     output.push_str("type = \"agentic\"\n");
+    output.push_str("name = \"address-blocking\"\n");
+    output.push_str("agent = \"codex\"\n");
+    output.push_str("model = \"gpt-5.5\"\n");
+    output.push_str("prompt = \"\"\"Check whether the prior review step left any blocking comments on PR #{pr}, and if so, fix them. ONE pass only — do not iterate.\n\n1. Fetch the latest review state:\n   gh pr view {pr} --json reviews,comments,reviewDecision\n\n2. Identify blocking items. A comment counts as blocking ONLY if:\n   - The review state is CHANGES_REQUESTED, OR\n   - The review/comment body explicitly uses the word \\\"blocking\\\" (or \\\"must fix\\\" / \\\"required\\\")\n   Subjective suggestions (\\\"consider\\\", \\\"nit\\\", \\\"could\\\", \\\"might want to\\\") are NOT blocking — ignore them.\n\n3. If there are no blocking items, do nothing and exit. This step is a no-op in that case.\n\n4. If there are blocking items:\n   - Make sure you are on the PR branch: gh pr checkout {pr}\n   - Make the minimal changes needed to address each blocking item\n   - Commit with a clear message referencing what was addressed\n   - Push to the PR branch: git push\n   - Reply on the PR summarising what you fixed: gh pr comment {pr} --body \\\"...\\\"\n\n5. Do NOT re-trigger another review cycle. Do NOT address non-blocking suggestions. Cap: one fix pass.\"\"\"\n");
+    output.push_str("max_retries = 1\n");
+    output.push_str("allow_failure = true\n\n");
+    output.push_str("[[step]]\n");
+    output.push_str("type = \"agentic\"\n");
     output.push_str("name = \"merge\"\n");
     output.push_str("agent = \"codex\"\n");
-    output.push_str("model = \"gpt-5.4\"\n");
+    output.push_str("model = \"gpt-5.5\"\n");
     output.push_str(&format!("prompt = \"\"\"Merge PR #{{pr}} to the default branch.\n\n1. First, try a clean merge:\n   gh pr merge {{pr}} --squash --auto\n\n2. If there are merge conflicts:\n   - Check out the PR branch\n   - Merge the default branch into it: git merge {DEFAULT_BRANCH_VAR}\n   - Resolve conflicts carefully — understand both sides before choosing\n   - Preserve the intent of both the PR and the conflicting changes\n   - Commit the resolution and push\n   - Then merge the PR\n\n3. If conflicts are too complex to resolve safely, do NOT force merge.\n   Instead, report what conflicts exist and stop.\"\"\"\n"));
     output.push_str("max_retries = 1\n\n");
     output.push_str("[[step]]\n");
@@ -311,12 +320,12 @@ pub fn render_phase_blueprint(_detected: &DetectedProject) -> String {
     output
 }
 
-pub fn render_finalize_blueprint(_detected: &DetectedProject) -> String {
+pub fn render_open_pr_blueprint(_detected: &DetectedProject) -> String {
     let mut output = String::from(GENERATED_HEADER);
     output.push_str("[blueprint]\n");
-    output.push_str("name = \"finalize\"\n");
+    output.push_str("name = \"open-pr\"\n");
     output.push_str(
-        "description = \"Finalize multi-phase work and open the pull request\"\n\n",
+        "description = \"Verify, push, and open a pull request for multi-phase work\"\n\n",
     );
     append_command_step(
         &mut output,

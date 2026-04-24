@@ -86,7 +86,7 @@ description = "Senior engineer review of a PR — review implementation, merge t
 type = "agentic"
 name = "review"
 agent = "codex"
-model = "gpt-5.4"
+model = "gpt-5.5"
 prompt = """
 You are a senior engineer reviewing PR #{pr}.
 
@@ -123,7 +123,7 @@ max_retries = 1
 type = "agentic"
 name = "merge"
 agent = "codex"
-model = "gpt-5.4"
+model = "gpt-5.5"
 prompt = """
 Merge PR #{pr} to main.
 
@@ -248,7 +248,7 @@ command = "{test_command}"
 
 ## Questions for Peter
 
-1. Should PR review be auto-triggered after build/fix-bug/finalize complete? Or always manually run?
+1. Should PR review be auto-triggered after build/fix-bug/open-pr complete? Or always manually run?
 2. Should the review agent be a different model/agent than the implementing one? (Different perspective = better review)
 3. For parallel agent PRs, should there be a queue/ordering mechanism, or just "merge and resolve conflicts as you go"?
 4. `forge init` now generates `pr-review.toml` by default.

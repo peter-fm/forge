@@ -43,7 +43,7 @@ For architectural / foundational phases, forge ships a blueprint called `phase` 
 
 The shape is: deterministic checkout, agentic implement, deterministic commit, verification sub-blueprint. The gates bracket the agentic work so drift is caught immediately.
 
-Once every phase has landed on the shared branch, run `forge run finalize --var phase_branch=<branch>` to run the final verification, the docs check, and open the PR.
+Once every phase has landed on the shared branch, run `forge run open-pr --var phase_branch=<branch>` to run the final verification, the docs check, and open the PR.
 
 ## Variables
 
@@ -81,7 +81,7 @@ forge run phase \
 Subsequent phases reuse the same `phase_branch`. After the final phase:
 
 ```
-forge run finalize \
+forge run open-pr \
   --var phase_branch=memory/refactor \
   --var commit_message="refactor(memory): phased rewrite"
 ```
