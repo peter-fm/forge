@@ -24,6 +24,37 @@ fn detects_rust_over_other_indicators() {
 }
 
 #[test]
+fn detects_cargo_workspace_commands() {
+    let dir = tempdir().expect("tempdir");
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"crates/*\"]\nresolver = \"2\"\n",
+    )
+    .expect("write workspace cargo");
+    fs::create_dir_all(dir.path().join("crates/app")).expect("crate dir");
+    fs::write(
+        dir.path().join("crates/app/Cargo.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    )
+    .expect("write member cargo");
+
+    let detected = detect_project(dir.path(), None).expect("detect project");
+    assert_eq!(detected.project_type, ProjectType::Rust);
+    assert_eq!(
+        detected.commands.test.as_deref(),
+        Some("cargo test --workspace")
+    );
+    assert_eq!(
+        detected.commands.lint.as_deref(),
+        Some("cargo fmt --check && cargo clippy --workspace -- -D warnings")
+    );
+    assert_eq!(
+        detected.commands.build.as_deref(),
+        Some("cargo build --workspace")
+    );
+}
+
+#[test]
 fn detects_bun_scripts_and_ci_hints() {
     let dir = tempdir().expect("tempdir");
     fs::write(

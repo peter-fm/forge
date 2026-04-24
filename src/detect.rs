@@ -72,7 +72,14 @@ pub fn detect_project(
     };
     let package = load_package_json(root).ok();
     let ci_hints = detect_ci_hints(root);
-    let commands = detect_commands(root, project_type, package.as_ref(), &ci_hints);
+    let cargo_workspace = project_type == ProjectType::Rust && is_cargo_workspace(root);
+    let commands = detect_commands(
+        root,
+        project_type,
+        package.as_ref(),
+        &ci_hints,
+        cargo_workspace,
+    );
     let name = detect_project_name(root, project_type, package.as_ref())?;
 
     Ok(DetectedProject {
@@ -217,24 +224,41 @@ fn detect_commands(
     project_type: ProjectType,
     package: Option<&JsonValue>,
     ci_hints: &CiHints,
+    cargo_workspace: bool,
 ) -> ProjectCommands {
     match project_type {
         ProjectType::Rust => {
+            let (test_default, lint_default, build_default) = if cargo_workspace {
+                (
+                    "cargo test --workspace",
+                    "cargo fmt --check && cargo clippy --workspace -- -D warnings",
+                    "cargo build --workspace",
+                )
+            } else {
+                (
+                    "cargo test",
+                    "cargo fmt --check && cargo clippy -- -D warnings",
+                    "cargo build",
+                )
+            };
             ProjectCommands {
                 test: Some(
                     ci_hints
                         .test
                         .clone()
-                        .unwrap_or_else(|| "cargo test".to_string()),
+                        .unwrap_or_else(|| test_default.to_string()),
                 ),
-                lint: Some(ci_hints.lint.clone().unwrap_or_else(|| {
-                    "cargo fmt --check && cargo clippy -- -D warnings".to_string()
-                })),
+                lint: Some(
+                    ci_hints
+                        .lint
+                        .clone()
+                        .unwrap_or_else(|| lint_default.to_string()),
+                ),
                 build: Some(
                     ci_hints
                         .build
                         .clone()
-                        .unwrap_or_else(|| "cargo build".to_string()),
+                        .unwrap_or_else(|| build_default.to_string()),
                 ),
             }
         }
@@ -372,6 +396,16 @@ fn load_make_targets(root: &Path) -> Vec<String> {
             Some(candidate.to_string())
         })
         .collect()
+}
+
+fn is_cargo_workspace(root: &Path) -> bool {
+    let Ok(input) = fs::read_to_string(root.join("Cargo.toml")) else {
+        return false;
+    };
+    let Ok(value) = input.parse::<toml::Value>() else {
+        return false;
+    };
+    value.get("workspace").is_some()
 }
 
 fn looks_like_test_command(command: &str) -> bool {

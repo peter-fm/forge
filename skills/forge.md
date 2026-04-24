@@ -162,6 +162,13 @@ forge status
 
 After every forge step. Read it; don't skim.
 
+For deeper diagnosis or live progress, look in `.forge/runs/`. Each run gets its own directory `.forge/runs/run-<id>/` containing:
+
+- `run.jsonl` — event stream for the whole run (step starts, exits, retries)
+- `step-<n>-<sanitized-name>.log` — captured stdout/stderr for that step
+
+Read the relevant `step-*.log` when a gate fails and `forge status` doesn't show enough; tail it while a long step is running to monitor progress without blocking the orchestration loop.
+
 ## When to use forge
 
 **Use forge when:**
