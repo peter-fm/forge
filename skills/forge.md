@@ -1,44 +1,59 @@
 ---
 name: forge
 description: >
-  Use forge development guardrails when working on a project. Check for a
-  .forge/ directory, read its config, pick a blueprint, write an instruction
-  file, then run the blueprint so lint and test gates apply. Triggers: "forge",
-  "forge run", "forge init", ".forge/", "blueprint", "build blueprint",
-  "fix-bug blueprint", "pr-review", "review-codebase".
+  Act as a high-level orchestrator for a coding task, using forge to carry it
+  from plan to merge autonomously. On invocation, enter plan mode with the
+  user; once the plan is agreed, drive each phase, instruction file, PR, and
+  merge through forge blueprints without stopping to ask unless a genuine
+  decision is required. Triggers: "forge", "forge run", "forge init",
+  ".forge/", "blueprint", "build blueprint", "fix-bug blueprint", "pr-review",
+  "review-codebase".
 ---
 
-# Forge — Development Guardrails
+# Forge — Orchestrated Development Guardrails
 
-When you're asked to build a feature, fix a bug, or refactor code in a project, check for a `.forge/` directory first.
+You are the **orchestrator**. Forge is your execution layer. The user's goal is to go from a shared plan all the way to a merged PR on main, with forge running every step that touches code. You stay in the loop to think, adjust, and hand work to forge — you do not stop to ask permission between phases.
 
-## Workflow
+## The orchestration contract
 
-### 1. Check for `.forge/`
+When this skill is invoked:
+
+1. **Enter plan mode with the user.** Explore the problem, ask questions, agree on scope and shape. Do not start coding in plan mode.
+2. **Once the plan is agreed, take full control.** Leave plan mode and run the plan to completion through forge. Do not pause for routine confirmations — the plan itself is the authorization.
+3. **Use forge for every code-touching step.** Instruction authoring is your job; code changes, gates, PR creation, review, and merge are forge's job.
+4. **Only stop for genuine decisions.** Ambiguity that the plan doesn't cover, a gate failing in a way that changes the plan, a destructive or irreversible action. Not "should I run the next phase?" — just run it.
+5. **Ideal path: plan mode → merged to main, uninterrupted.**
+
+### What "orchestrator" means in practice
+
+- You write instruction files. Forge agents implement from them.
+- You read forge's output between steps, compare it against the plan, and adjust the next instruction file accordingly — including revising the plan if the previous phase revealed something.
+- You run `forge status` after each step and interpret the result.
+- You do not hand-edit source files to "help forge along." If a phase needs a tweak, write it into the next instruction file or run another forge phase.
+
+## Step 0 — Plan mode with the user
+
+On invocation, switch to plan mode (`EnterPlanMode`) and work with the user to define:
+
+- **Problem & context** — what's broken, what's missing, why it matters.
+- **Desired end state** — observable outcomes, not file lists.
+- **Shape of delivery** — single PR, or multi-phase with one PR at the end.
+- **Load-bearing constraints** — anything that must be true that the agent cannot decide for itself.
+- **Out of scope** — explicit don't-touch list.
+
+Ask clarifying questions now. Once the plan is out of plan mode and exits successfully, you own it end-to-end.
+
+If the project has no `.forge/`, offer to run `forge init` as part of the plan. If forge genuinely doesn't fit (pure read/analysis, one-line config tweak), say so in plan mode and fall back to direct edits — but be honest about it.
+
+## Step 1 — Read the project's forge setup
 
 ```bash
 ls .forge/config.toml 2>/dev/null
-```
-
-If `.forge/` exists, use it. If not, you can create it:
-
-```bash
-forge init
-```
-
-### 2. Read the project config
-
-```bash
 cat .forge/config.toml
-```
-
-This tells you: project type, test command, lint command, build command, default agent.
-
-### 3. List available blueprints
-
-```bash
 forge list
 ```
+
+Config tells you project type, test/lint/build commands, default agent. `forge list` shows available blueprints.
 
 Common blueprints:
 - `build` — implement a task (feature or refactor) with lint + test gates, then a docs check before PR creation
@@ -46,79 +61,108 @@ Common blueprints:
 - `phase` — execute one phase of multi-phase work on a shared branch (no PR yet)
 - `open-pr` — run final gates and open the PR for multi-phase work
 - `pr-review` — senior-engineer review of an open PR, then merge and run post-merge lint/test
-- `review-codebase` — sweep the codebase for dead code, unused exports, stray TODOs, placeholder stubs, and inconsistent patterns; writes findings to `.forge/instructions/review-codebase-<date>.md` for later triage (does not modify code)
+- `review-codebase` — sweep the codebase for dead code, unused exports, stray TODOs, placeholder stubs, and inconsistent patterns; writes findings to `.forge/instructions/review-codebase-<date>.md` (does not modify code)
 
-### 4. Pick a blueprint by the shape of the deliverable
+## Step 2 — Pick the blueprint by the shape of the deliverable
 
-Choose based on what should land, not the kind of work:
+- **One commit, one PR → `build`.** Single reviewable PR for features, bug fixes, refactors.
+- **Multi-phase, one PR at the end → `phase` per session, then `open-pr` once.** Shared branch across runs.
+- **Bug with a regression test → `fix-bug`.** Prompts for the regression test first.
+- **Reviewing an existing PR → `pr-review`.** Not for new code.
+- **Hygiene sweep → `review-codebase`.** Produces findings; does not modify code.
 
-- **One commit, one PR → `build`.** Features, bug fixes, and refactors that fit in a single reviewable PR.
-- **Multiple commits across multiple sessions, one PR at the end → `phase` per session, then `open-pr` once.** Use this when the work is too large to land in one reviewable PR but you still want a single PR for the reviewer. Each `phase` run commits to a shared branch without opening a PR; `open-pr` runs the final gates and opens the PR.
-- **Bug with a regression test → `fix-bug`.** Like `build` but prompts for the regression test first.
-- **Reviewing an existing PR → `pr-review`.** Not for writing new code.
-- **Sweeping for hygiene issues → `review-codebase`.** Produces an instruction file of findings; does not modify code.
+If the plan is explicitly multi-phase, do NOT default to `build` — it opens a PR after phase 1. Use `phase` + `open-pr`.
 
-If you have an explicit multi-phase plan, do NOT default to `build` — it will open a PR after phase 1. Use `phase` + `open-pr`.
+## Step 3 — Write the instruction file
 
-### 5. Write task instructions
+**Required reading before writing:** `.forge/INSTRUCTION_GUIDE.md` in the project. It defines the eight-section problem-focused shape forge agents expect. Read it every time — don't assume you remember it.
 
-Read `.forge/INSTRUCTION_GUIDE.md` before writing an instruction file — it defines the eight-section problem-focused shape forge agents expect. Required reading for anything spanning more than a single file or commit; a short brief is only fine for truly trivial ad-hoc runs.
+Instruction files live in `.forge/instructions/<slug>.md`. Forge hands the file directly to the implementing agent with no summariser in the middle, so the file must stand alone.
 
-Instruction files live in `.forge/instructions/<slug>.md`. Forge hands the file directly to the implementing agent — there is no summariser in the middle, so the file has to stand alone.
+Key discipline:
+- Describe WHAT is true when done, not HOW to get there.
+- No invented file paths, function signatures, or SQL DDL.
+- Load-bearing constraints only — things the agent cannot decide for itself.
+- Runnable acceptance criteria against the repo state at close.
 
-### 6. Run the blueprint
+## Step 4 — Run forge, autonomously
 
-**Single PR (most work):**
+### Single-PR work (`build` / `fix-bug`)
 
 ```bash
-forge run build --instruction dark-mode.md --var commit_message="feat: dark mode"
+forge run build --instruction <slug>.md --var commit_message="<message>"
+# or
+forge run fix-bug --instruction <slug>.md --var commit_message="<message>"
 ```
 
-Or for a quick ad-hoc run without an instruction file:
+When it finishes:
+1. Run `forge status`.
+2. Read the output against the plan.
+3. If the PR is open, proceed to Step 5 (review and merge) — do not stop to ask.
+4. If a gate failed, diagnose and either re-run, write a follow-up instruction, or stop for a user decision only if the failure changes the plan.
+
+### Multi-phase work (`phase` + `open-pr`) — the orchestration loop
+
+For each phase, in order:
+
+1. **Write the phase instruction file** (reading INSTRUCTION_GUIDE.md first). Scope it to just this phase.
+2. **Kick off the phase:**
+
+   ```bash
+   forge run phase \
+     --instruction <phase-slug>.md \
+     --var phase_branch=<shared-branch-name> \
+     --var commit_message="<phase commit message>"
+   ```
+
+3. **Check the result.** `forge status` plus a look at what landed on the branch (`git log`, `git diff`).
+4. **Compare against the plan.** Did this phase achieve what it was meant to? Did it surface anything that changes the next phase — a missing assumption, a cleaner shape, a constraint you hadn't seen?
+5. **Adjust the plan if needed**, then **write the next phase instruction file** reflecting any revisions. The next phase builds on the actual state of the branch, not on your stale mental model.
+6. **Repeat** until all planned phases are done.
+
+All phases share the same `phase_branch` value. Pick a branch name once and reuse it.
+
+After the last phase, finalise with a single PR:
 
 ```bash
-forge run build --task "Add dark mode toggle to settings"
-```
-
-**Bug fix with regression test:**
-
-```bash
-forge run fix-bug --instruction missing-null-check.md --var commit_message="fix: null check on user.email"
-```
-
-**Multi-phase refactor (shared branch, one PR at the end):**
-
-```bash
-# One run per phase — same phase_branch across all of them:
-forge run phase \
-  --instruction phase-1-stable-ids.md \
-  --var phase_branch=refactor/memory-ids \
-  --var commit_message="feat(memory): phase 1 — stable IDs"
-
-forge run phase \
-  --instruction phase-2-storage.md \
-  --var phase_branch=refactor/memory-ids \
-  --var commit_message="feat(memory): phase 2 — storage layer"
-
-# After the final phase, open the PR:
 forge run open-pr \
-  --var phase_branch=refactor/memory-ids \
-  --var commit_message="refactor: memory subsystem"
+  --var phase_branch=<shared-branch-name> \
+  --var commit_message="<PR title>"
 ```
 
-**Review an open PR:**
+## Step 5 — Review the PR and merge to main
+
+Once a PR is open (from `build`, `fix-bug`, or `open-pr`), don't stop. Run forge's PR review, which also merges on success:
 
 ```bash
-forge run pr-review --pr 123
+forge run pr-review --pr <number>
 ```
 
-### 7. Check results
+Report the final outcome — PR URL, merged SHA, any follow-up items — to the user.
+
+## When to stop and ask the user
+
+Stop only for genuine decisions:
+
+- A gate fails in a way that reveals the plan is wrong, not just a bug in the current phase.
+- Forge surfaces a question that the plan doesn't answer (e.g. a schema choice that has lasting consequences).
+- A destructive or irreversible action the plan did not authorise (force-push to main, deleting shared branches, dropping data).
+- `pr-review` flags a blocking issue that requires a product or architectural call.
+
+Do NOT stop for:
+- "Phase 1 done, should I start phase 2?" — just start it.
+- "The PR is open, should I review it?" — run `pr-review`.
+- "Lint passed, should I continue?" — yes.
+
+## Checking results
 
 ```bash
 forge status
 ```
 
-## When to Use Forge
+After every forge step. Read it; don't skim.
+
+## When to use forge
 
 **Use forge when:**
 - `.forge/` exists in the project
@@ -132,11 +176,11 @@ forge status
 
 ## Important
 
-- Always write clear instructions before running a blueprint
-- Don't bypass forge gates by editing code directly when a blueprint is available
-- If a blueprint fails after retries, report what went wrong — don't silently give up
-- Expect branching blueprints to include a `docs-check` step after verification gates and before PR creation
-- Check `forge status` and report the outcome to the user
+- Always write clear instructions before running a blueprint — re-read INSTRUCTION_GUIDE.md each time.
+- Don't bypass forge gates by editing code directly when a blueprint is available.
+- If a blueprint fails after retries, diagnose and fix — don't silently give up and don't hand-patch around it.
+- Expect branching blueprints to include a `docs-check` step after verification gates and before PR creation.
+- Report the outcome (merged SHA, PR URL, follow-ups) to the user at the end.
 
 ## Blueprint Authoring
 
